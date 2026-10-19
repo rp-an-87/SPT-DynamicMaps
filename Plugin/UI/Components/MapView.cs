@@ -132,6 +132,12 @@ namespace DynamicMaps.UI.Components
             UpdateLayerBound(bound);
         }
 
+        /// <summary>Re-evaluates which floor a bound is on, e.g. after it moved to a different height.</summary>
+        public void RefreshLayerBound(ILayerBound bound)
+        {
+            UpdateLayerBound(bound);
+        }
+
         public void RemoveLayerBound(ILayerBound bound)
         {
             _extraBounds.Remove(bound);

@@ -135,7 +135,7 @@ namespace DynamicMaps.Config
         private const string ScavHeatmapTitle = "8. Scav Heatmap";
         public static ConfigEntry<bool> ShowScavHeatmapInRaid;
         public static ConfigEntry<int> ScavHeatmapIntelLevel;
-        public static ConfigEntry<float> ScavHeatmapCellSize;
+        public static ConfigEntry<float> ScavHeatmapRadius;
         public static ConfigEntry<int> ScavHeatmapScavsForFullHeat;
         public static ConfigEntry<float> ScavHeatmapRange;
         public static ConfigEntry<float> ScavHeatmapFadeSeconds;
@@ -947,13 +947,13 @@ namespace DynamicMaps.Config
                     new AcceptableValueRange<int>(0, 3),
                     new ConfigurationManagerAttributes { })));
 
-            ConfigEntries.Add(ScavHeatmapCellSize = config.Bind(
+            ConfigEntries.Add(ScavHeatmapRadius = config.Bind(
                 ScavHeatmapTitle,
-                "Cell size (m)",
-                60f,
+                "Heat radius (m)",
+                70f,
                 new ConfigDescription(
-                    "Size of one heat cell in meters. Smaller = finer, more precise heatmap. Larger = vaguer.",
-                    new AcceptableValueRange<float>(20f, 250f),
+                    "Radius of the heat blob around each scav, in meters. Smaller = more precise. Larger = vaguer, and blobs of nearby scavs overlap more.",
+                    new AcceptableValueRange<float>(20f, 300f),
                     new ConfigurationManagerAttributes { })));
 
             ConfigEntries.Add(ScavHeatmapScavsForFullHeat = config.Bind(
@@ -961,7 +961,7 @@ namespace DynamicMaps.Config
                 "Scavs for full heat",
                 3,
                 new ConfigDescription(
-                    "How many scavs in one cell make it fully hot. Lower = hotter, more saturated map.",
+                    "How many scavs overlapping each other it takes to reach the max opacity. Lower = a single scav is already strongly visible.",
                     new AcceptableValueRange<int>(1, 10),
                     new ConfigurationManagerAttributes { })));
 

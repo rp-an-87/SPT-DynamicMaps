@@ -6,8 +6,9 @@ using UnityEngine.UI;
 namespace DynamicMaps.UI.Components
 {
     /// <summary>
-    /// One cell of the scav heatmap: a soft round blob sized in map meters (so it scales with the map, unlike markers).
-    /// Takes part in per-floor layer status through ILayerBound, the same way markers do.
+    /// One heat blob of the scav heatmap, centered on a scav: a soft round sprite sized in map meters (so it scales
+    /// with the map, unlike markers). Takes part in per-floor layer status through ILayerBound, like markers do.
+    /// Overlapping blobs stack, so groups of scavs show up as hotter areas.
     /// </summary>
     public class ScavHeatCell : MonoBehaviour, ILayerBound
     {
@@ -15,14 +16,20 @@ namespace DynamicMaps.UI.Components
         private static readonly Color _coolColor = new Color(1f, 0.85f, 0.2f);
         private static Sprite _blobSprite;
 
-        // blobs are drawn larger than the cell so neighbouring cells blend into each other
-        public const float BlobScale = 1.7f;
-
         public Image Image { get; private set; }
         public RectTransform RectTransform => gameObject.transform as RectTransform;
 
+        /// <summary>1 while a scav is being tracked, 0 once it died or left; heat moves towards this value over time.</summary>
         public float Target { get; set; }
         public float Heat { get; set; }
+
+        /// <summary>The heat that was last drawn; used to skip redraws (every redraw rebuilds the UI canvas).</summary>
+        public float AppliedHeat { get; private set; } = -1f;
+
+        public float Radius { get; private set; }
+
+        /// <summary>Where the tracked scav is; the blob glides towards it between samples.</summary>
+        public Vector3 TargetPosition { get; set; }
 
         private float _levelAlpha = 1f;
         private Vector3 _position;
@@ -36,7 +43,7 @@ namespace DynamicMaps.UI.Components
             }
         }
 
-        public static ScavHeatCell Create(GameObject parent, Vector3 position, float cellSizeMeters)
+        public static ScavHeatCell Create(GameObject parent, Vector3 position, float radiusMeters)
         {
             var go = UIUtils.CreateUIGameObject(parent, "ScavHeatCell");
             var cell = go.AddComponent<ScavHeatCell>();
@@ -47,16 +54,18 @@ namespace DynamicMaps.UI.Components
             cell.Image.type = Image.Type.Simple;
             cell.Image.color = Color.clear;
 
-            cell.SetCellSize(cellSizeMeters);
+            cell.SetRadius(radiusMeters);
             cell.Position = position;
+            cell.TargetPosition = position;
             go.transform.SetAsFirstSibling();  // draw underneath markers
 
             return cell;
         }
 
-        public void SetCellSize(float cellSizeMeters)
+        public void SetRadius(float radiusMeters)
         {
-            RectTransform.sizeDelta = Vector2.one * (cellSizeMeters * BlobScale);
+            Radius = radiusMeters;
+            RectTransform.sizeDelta = Vector2.one * (radiusMeters * 2f);
         }
 
         public void HandleNewLayerStatus(LayerStatus status)
@@ -69,12 +78,23 @@ namespace DynamicMaps.UI.Components
         public void ApplyVisual()
         {
             var heat = Mathf.Clamp01(Heat);
-            var alpha = heat * Settings.ScavHeatmapMaxOpacity.Value * _levelAlpha;
+            AppliedHeat = heat;
             var color = Color.Lerp(_coolColor, Settings.ScavHeatmapColor.Value, heat);
-            color.a = alpha;
+            color.a = heat * GetPerBlobOpacity() * _levelAlpha;
 
             Image.color = color;
-            Image.enabled = alpha > 0.004f;
+            Image.enabled = color.a > 0.004f;
+        }
+
+        /// <summary>
+        /// Opacity of a single fully hot blob, chosen so that "scavs for full heat" overlapping blobs reach the
+        /// configured max opacity (stacked alpha: 1 - (1 - a)^n).
+        /// </summary>
+        private static float GetPerBlobOpacity()
+        {
+            var maxOpacity = Mathf.Clamp(Settings.ScavHeatmapMaxOpacity.Value, 0.05f, 0.99f);
+            var scavsForFullHeat = Mathf.Max(1, Settings.ScavHeatmapScavsForFullHeat.Value);
+            return 1f - Mathf.Pow(1f - maxOpacity, 1f / scavsForFullHeat);
         }
 
         private static Sprite GetBlobSprite()

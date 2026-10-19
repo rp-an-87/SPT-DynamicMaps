@@ -11,16 +11,16 @@ namespace DynamicMaps.DynamicMarkers
 {
     /// <summary>
     /// Fork addition: shows scav activity as a heatmap instead of exact markers.
-    /// Positions are sampled every few seconds, snapped to a grid and shown as soft blobs; heat only rises on a
-    /// sample and fades out slowly afterwards, so killing a scav doesn't make the heat vanish instantly.
+    /// Every regular scav gets a soft heat blob centered on it, refreshed every few seconds. Blobs fade in when a scav
+    /// first shows up, glide along as it moves, and when it dies or leaves they stay where they were and fade out, so
+    /// killing a scav doesn't make the heat vanish instantly. Overlapping blobs stack into hotter areas.
     /// Per-floor visibility follows the map layers, like markers.
+    ///
+    /// Performance: scav positions are read every few seconds, visuals update ~10 times a second and only when a value
+    /// actually changed (changing a UI graphic forces a canvas rebuild), and nothing runs while the map is hidden.
     /// </summary>
     public class ScavHeatmapProvider : IDynamicMarkerProvider
     {
-        // grid x, grid y, map level (floor)
-        private readonly Dictionary<(int, int, int), ScavHeatCell> _cells = new Dictionary<(int, int, int), ScavHeatCell>();
-        private readonly Dictionary<(int, int, int), (int count, float heightSum)> _samples = new Dictionary<(int, int, int), (int count, float heightSum)>();
-
         // "scav" in this mod means the whole Savage side (raiders, rogues, cultists, boss followers...); the heatmap
         // only counts the actual scav roles
         private static readonly HashSet<WildSpawnType> _scavRoles = new HashSet<WildSpawnType>
@@ -32,11 +32,22 @@ namespace DynamicMaps.DynamicMarkers
             WildSpawnType.marksman,
         };
 
+        private const float _visualInterval = 0.1f;   // seconds between visual updates
+        private const float _glideSpeed = 2.5f;       // how quickly a blob glides to a newly sampled position
+        private const float _minMove = 0.25f;         // meters; smaller position changes are not applied
+        private const float _minHeatChange = 0.004f;  // smaller heat changes are not redrawn
+
+        private readonly Dictionary<string, ScavHeatCell> _blobs = new Dictionary<string, ScavHeatCell>();
+        private readonly HashSet<string> _seen = new HashSet<string>();
+        private readonly List<string> _expired = new List<string>();
+        private readonly List<string> _keyBuffer = new List<string>();
+
         private MapView _map;
         private ScavHeatmapTicker _ticker;
         private bool _isShown;
         private float _nextSampleTime;
-        private float _lastUpdateTime;
+        private float _lastVisualTime;
+        private float _lastSettingsHash;
 
         public void OnShowInRaid(MapView map)
         {
@@ -44,7 +55,7 @@ namespace DynamicMaps.DynamicMarkers
             _isShown = true;
             EnsureTicker();
 
-            _lastUpdateTime = Time.unscaledTime;
+            _lastVisualTime = Time.unscaledTime;
             Sample();
         }
 
@@ -60,7 +71,7 @@ namespace DynamicMaps.DynamicMarkers
 
         public void OnMapChanged(MapView map, MapDef mapDef)
         {
-            ClearCells();
+            ClearBlobs();
             _map = map;
             if (_isShown)
             {
@@ -78,7 +89,7 @@ namespace DynamicMaps.DynamicMarkers
 
         public void OnHideOutOfRaid(MapView map) { }
 
-        /// <summary>Called every frame by the ticker while the map is shown.</summary>
+        /// <summary>Called every frame by the ticker while the map is shown; does real work only a few times a second.</summary>
         internal void Update()
         {
             if (!_isShown || _map == null)
@@ -92,38 +103,71 @@ namespace DynamicMaps.DynamicMarkers
                 Sample();
             }
 
-            var deltaTime = Mathf.Max(0f, now - _lastUpdateTime);
-            _lastUpdateTime = now;
+            var deltaTime = now - _lastVisualTime;
+            if (deltaTime < _visualInterval)
+            {
+                return;
+            }
 
+            _lastVisualTime = now;
+            UpdateBlobs(deltaTime);
+        }
+
+        private void UpdateBlobs(float deltaTime)
+        {
             var fadeOutSeconds = Mathf.Max(1f, Settings.ScavHeatmapFadeSeconds.Value);
             var fadeInSeconds = Settings.ScavHeatmapFadeInSeconds.Value;
-            var expired = new List<(int, int, int)>();
-            foreach (var entry in _cells)
+            var glide = 1f - Mathf.Exp(-_glideSpeed * deltaTime);
+
+            // redraw everything when a visual setting changed (opacity, color, overlap count)
+            var settingsHash = Settings.ScavHeatmapMaxOpacity.Value
+                               + Settings.ScavHeatmapScavsForFullHeat.Value * 3.1f
+                               + Settings.ScavHeatmapColor.Value.r * 7.3f
+                               + Settings.ScavHeatmapColor.Value.g * 11.7f
+                               + Settings.ScavHeatmapColor.Value.b * 13.1f;
+            var forceRedraw = !Mathf.Approximately(settingsHash, _lastSettingsHash);
+            _lastSettingsHash = settingsHash;
+
+            _expired.Clear();
+            foreach (var entry in _blobs)
             {
-                var cell = entry.Value;
-                // heat builds up linearly towards the sampled value (fade-in) and decays linearly (fadeout)
-                if (cell.Target > cell.Heat)
+                var blob = entry.Value;
+
+                // heat builds up linearly while the scav is tracked (fade-in) and decays linearly once it's gone (fadeout)
+                var heat = blob.Heat;
+                if (blob.Target > heat)
                 {
-                    cell.Heat = fadeInSeconds <= 0.01f
-                        ? cell.Target
-                        : Mathf.Min(cell.Target, cell.Heat + deltaTime / fadeInSeconds);
+                    heat = fadeInSeconds <= 0.01f
+                        ? blob.Target
+                        : Mathf.Min(blob.Target, heat + deltaTime / fadeInSeconds);
                 }
                 else
                 {
-                    cell.Heat = Mathf.Max(cell.Target, cell.Heat - deltaTime / fadeOutSeconds);
+                    heat = Mathf.Max(blob.Target, heat - deltaTime / fadeOutSeconds);
                 }
 
-                cell.ApplyVisual();
+                blob.Heat = heat;  // always keep the real value; only the redraw below is throttled
 
-                if (cell.Target <= 0f && cell.Heat <= 0.01f)
+                if (blob.Target > 0f && (blob.TargetPosition - blob.Position).sqrMagnitude > _minMove * _minMove)
                 {
-                    expired.Add(entry.Key);
+                    blob.Position = Vector3.Lerp(blob.Position, blob.TargetPosition, glide);
+                }
+
+                var endOfFade = (heat <= 0f || heat >= 1f) && !Mathf.Approximately(blob.AppliedHeat, heat);
+                if (forceRedraw || endOfFade || Mathf.Abs(heat - blob.AppliedHeat) > _minHeatChange)
+                {
+                    blob.ApplyVisual();
+                }
+
+                if (blob.Target <= 0f && blob.Heat <= 0.01f)
+                {
+                    _expired.Add(entry.Key);
                 }
             }
 
-            foreach (var key in expired)
+            foreach (var key in _expired)
             {
-                RemoveCell(key);
+                RemoveBlob(key);
             }
         }
 
@@ -131,67 +175,62 @@ namespace DynamicMaps.DynamicMarkers
         {
             _nextSampleTime = Time.unscaledTime + Mathf.Max(1f, Settings.ScavHeatmapUpdateSeconds.Value);
 
-            // nothing is wanted right now: let existing cells fade out
-            foreach (var cell in _cells.Values)
-            {
-                cell.Target = 0f;
-            }
+            // anything not seen below stops being tracked, and fades out where it was last seen
+            _seen.Clear();
 
             var gameWorld = Singleton<GameWorld>.Instance;
             var mainPlayer = GameUtils.GetMainPlayer();
-            if (gameWorld == null || mainPlayer == null || _map == null || !GameUtils.IsInRaid())
+            var canTrack = gameWorld != null && mainPlayer != null && _map != null && GameUtils.IsInRaid()
+                           // same rule as the other intel-gated markers, except that 0 means "any intel level"
+                           && (GameUtils.GetIntelLevel() ?? 0) >= Settings.ScavHeatmapIntelLevel.Value;
+
+            if (canTrack)
             {
-                return;
+                var radius = Settings.ScavHeatmapRadius.Value;
+                var range = Settings.ScavHeatmapRange.Value;
+                var origin = mainPlayer.Position;
+
+                foreach (var player in gameWorld.AllAlivePlayersList)
+                {
+                    if (player == null || player.IsYourPlayer || player.IsHeadlessClient() || player.IsBTRShooter()
+                        || !IsRegularScav(player) || player.HasCorpse())
+                    {
+                        continue;
+                    }
+
+                    if (range > 0f && Vector3.Distance(player.Position, origin) > range)
+                    {
+                        continue;
+                    }
+
+                    var mapPosition = MathUtils.ConvertToMapPosition(player.Position);  // x, y = ground plane, z = height
+                    var id = player.ProfileId;
+                    _seen.Add(id);
+
+                    if (!_blobs.TryGetValue(id, out var blob))
+                    {
+                        blob = ScavHeatCell.Create(_map.MapMarkerContainer, mapPosition, radius);
+                        _blobs[id] = blob;
+                        _map.AddLayerBound(blob);  // applies the current floor status immediately
+                    }
+
+                    if (!Mathf.Approximately(blob.Radius, radius))
+                    {
+                        blob.SetRadius(radius);
+                    }
+
+                    blob.TargetPosition = mapPosition;
+                    blob.Target = 1f;
+                    _map.RefreshLayerBound(blob);  // the scav may have changed floor
+                }
             }
 
-            // same rule as the other intel-gated markers, except that 0 means "any intel level"
-            if ((GameUtils.GetIntelLevel() ?? 0) < Settings.ScavHeatmapIntelLevel.Value)
+            foreach (var entry in _blobs)
             {
-                return;
-            }
-
-            var cellSize = Settings.ScavHeatmapCellSize.Value;
-            var range = Settings.ScavHeatmapRange.Value;
-            var origin = mainPlayer.Position;
-
-            _samples.Clear();
-            foreach (var player in gameWorld.AllAlivePlayersList)
-            {
-                if (player == null || player.IsYourPlayer || player.IsHeadlessClient() || player.IsBTRShooter()
-                    || !IsRegularScav(player) || player.HasCorpse())
+                if (!_seen.Contains(entry.Key))
                 {
-                    continue;
+                    entry.Value.Target = 0f;
                 }
-
-                if (range > 0f && Vector3.Distance(player.Position, origin) > range)
-                {
-                    continue;
-                }
-
-                var mapPosition = MathUtils.ConvertToMapPosition(player.Position);  // x, y = ground plane, z = height
-                var level = _map.GetLevelAt(mapPosition) ?? int.MinValue;
-                var key = (Mathf.FloorToInt(mapPosition.x / cellSize), Mathf.FloorToInt(mapPosition.y / cellSize), level);
-
-                _samples.TryGetValue(key, out var sample);
-                _samples[key] = (sample.count + 1, sample.heightSum + mapPosition.z);
-            }
-
-            var scavsForFullHeat = Mathf.Max(1, Settings.ScavHeatmapScavsForFullHeat.Value);
-            foreach (var entry in _samples)
-            {
-                var key = entry.Key;
-                var averageHeight = entry.Value.heightSum / entry.Value.count;
-
-                if (!_cells.TryGetValue(key, out var cell))
-                {
-                    var center = new Vector3((key.Item1 + 0.5f) * cellSize, (key.Item2 + 0.5f) * cellSize, averageHeight);
-                    cell = ScavHeatCell.Create(_map.MapMarkerContainer, center, cellSize);
-                    _cells[key] = cell;
-                    _map.AddLayerBound(cell);  // applies the current floor status immediately
-                }
-
-                cell.SetCellSize(cellSize);
-                cell.Target = Mathf.Clamp01(entry.Value.count / (float)scavsForFullHeat);
             }
         }
 
@@ -211,36 +250,38 @@ namespace DynamicMaps.DynamicMarkers
             _ticker.Provider = this;
         }
 
-        private void RemoveCell((int, int, int) key)
+        private void RemoveBlob(string key)
         {
-            if (!_cells.TryGetValue(key, out var cell))
+            if (!_blobs.TryGetValue(key, out var blob))
             {
                 return;
             }
 
-            _cells.Remove(key);
-            if (cell == null)
+            _blobs.Remove(key);
+            if (blob == null)
             {
                 return;
             }
 
-            _map?.RemoveLayerBound(cell);
-            cell.gameObject.SetActive(false);  // destroy is not guaranteed to be immediate
-            Object.Destroy(cell.gameObject);
+            _map?.RemoveLayerBound(blob);
+            blob.gameObject.SetActive(false);  // destroy is not guaranteed to be immediate
+            Object.Destroy(blob.gameObject);
         }
 
-        private void ClearCells()
+        private void ClearBlobs()
         {
-            foreach (var key in new List<(int, int, int)>(_cells.Keys))
+            _keyBuffer.Clear();
+            _keyBuffer.AddRange(_blobs.Keys);
+            foreach (var key in _keyBuffer)
             {
-                RemoveCell(key);
+                RemoveBlob(key);
             }
         }
 
         private void Teardown()
         {
             _isShown = false;
-            ClearCells();
+            ClearBlobs();
 
             if (_ticker != null)
             {
