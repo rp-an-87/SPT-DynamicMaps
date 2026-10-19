@@ -995,10 +995,10 @@ namespace DynamicMaps.Config
             ConfigEntries.Add(ScavHeatmapUpdateSeconds = config.Bind(
                 ScavHeatmapTitle,
                 "Update interval (s)",
-                5f,
+                2f,
                 new ConfigDescription(
-                    "How often scav positions are sampled. Higher = less precise, cheaper, and less revealing.",
-                    new AcceptableValueRange<float>(1f, 30f),
+                    "How often scav positions are sampled. Lower = tracks scavs more closely. Higher = vaguer and cheaper.",
+                    new AcceptableValueRange<float>(0.25f, 30f),
                     new ConfigurationManagerAttributes { })));
 
             ConfigEntries.Add(ScavHeatmapMaxOpacity = config.Bind(

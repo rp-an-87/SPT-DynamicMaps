@@ -16,8 +16,8 @@ namespace DynamicMaps.DynamicMarkers
     /// killing a scav doesn't make the heat vanish instantly. Overlapping blobs stack into hotter areas.
     /// Per-floor visibility follows the map layers, like markers.
     ///
-    /// Performance: scav positions are read every few seconds, visuals update ~10 times a second and only when a value
-    /// actually changed (changing a UI graphic forces a canvas rebuild), and nothing runs while the map is hidden.
+    /// Performance: nothing runs while the map is hidden. While it is shown, blobs update every frame (the game already
+    /// draws live scav markers on the same canvas, so this is not a meaningful extra cost).
     /// </summary>
     public class ScavHeatmapProvider : IDynamicMarkerProvider
     {
@@ -32,10 +32,12 @@ namespace DynamicMaps.DynamicMarkers
             WildSpawnType.marksman,
         };
 
-        private const float _visualInterval = 0.1f;   // seconds between visual updates
-        private const float _glideSpeed = 2.5f;       // how quickly a blob glides to a newly sampled position
-        private const float _minMove = 0.25f;         // meters; smaller position changes are not applied
-        private const float _minHeatChange = 0.004f;  // smaller heat changes are not redrawn
+        // Redraw throttles. 0 = every frame. Raise them if the map ever gets expensive with lots of scavs.
+        private const float _visualInterval = 0f;    // seconds between visual updates
+        private const float _minMove = 0f;           // meters; smaller position changes are not applied
+        private const float _minHeatChange = 0f;     // smaller heat changes are not redrawn
+
+        private const float _glideSpeed = 4f;        // how quickly a blob glides to a newly sampled position
 
         private readonly Dictionary<string, ScavHeatCell> _blobs = new Dictionary<string, ScavHeatCell>();
         private readonly HashSet<string> _seen = new HashSet<string>();
@@ -173,7 +175,7 @@ namespace DynamicMaps.DynamicMarkers
 
         private void Sample()
         {
-            _nextSampleTime = Time.unscaledTime + Mathf.Max(1f, Settings.ScavHeatmapUpdateSeconds.Value);
+            _nextSampleTime = Time.unscaledTime + Mathf.Max(0.25f, Settings.ScavHeatmapUpdateSeconds.Value);
 
             // anything not seen below stops being tracked, and fades out where it was last seen
             _seen.Clear();
