@@ -1008,6 +1008,9 @@ namespace DynamicMaps.UI
                 provider.RefreshMarkers();
             }
 
+            // scav heatmap (fork addition); respects the same server permission as scav markers
+            AddRemoveMarkerProvider<ScavHeatmapProvider>(ServerConfig.AllowShowScavMarkersInRaid && Settings.ShowScavHeatmapInRaid.Value);
+
             // corpse markers
             var needCorpseMarkers = Settings.ShowFriendlyCorpsesInRaid.Value
                                  || Settings.ShowKilledCorpsesInRaid.Value

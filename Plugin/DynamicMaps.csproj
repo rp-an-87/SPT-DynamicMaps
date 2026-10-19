@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <TarkovDir Condition=" '$(TarkovDir)' == '' ">D:\SPT 4.1 BE\</TarkovDir>
+    <TarkovDir Condition=" '$(TarkovDir)' == '' ">C:\SPT Stuff\SPT 4160\</TarkovDir>
     <TarkovPluginsSPTDir>$(TarkovDir)BepInEx\plugins\spt\</TarkovPluginsSPTDir>
     <TarkovManagedDir>$(TarkovDir)EscapeFromTarkov_Data\Managed\</TarkovManagedDir>
     <TarkovBepInExCoreDir>$(TarkovDir)BepInEx\core\</TarkovBepInExCoreDir>
@@ -114,26 +114,24 @@
     <WriteLinesToFile File="@(VersionCs)" Lines="namespace DynamicMaps{public static class BuildInfo {public const string Version = &quot;$(Version)&quot;%3B}}" />
   </Target>
 
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+  <!--
+    Fork build: deploys ONLY the plugin DLL (upstream also copied resources, managed DLLs and server files into the game folder).
+    Skip with -p:DeployToGame=false. Safe while the game is running: a loaded DLL can be renamed but not overwritten, so the old
+    one is moved aside to .bak first (.orig = the first DLL ever replaced, never overwritten). New code loads on next game start.
+  -->
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(DeployToGame)' != 'false'">
+    <PropertyGroup>
+      <PluginDeployDir>$(TarkovDir)BepInEx\plugins\mpstark-dynamicmaps\</PluginDeployDir>
+    </PropertyGroup>
     <ItemGroup>
-      <ServerComponents Include="$(ProjectDir)../Server/bin/Release/mpstark-dynamicmaps/*.*" />
       <OutputDLL Include="$(ProjectDir)$(OutDir)$(TargetName).dll" />
-      <License Include="$(ProjectDir)LICENSE" />
-      <Resources Include="$(ProjectDir)Resources\**\*.*" />
-      <ManagedDlls Include="$(ProjectDir)../EscapeFromTarkov_Data\**\*.*" />
     </ItemGroup>
 
-    <!-- Copies the output and resources to tarkov game folder -->
-    <Copy SourceFiles="@(OutputDLL);@(Resources);@(License)" DestinationFolder="$(TarkovDir)BepInEx\plugins\mpstark-dynamicmaps\%(RecursiveDir)" />
-    <Copy SourceFiles="@(ManagedDlls)" DestinationFolder="$(TarkovDir)\%(RecursiveDir)" />
-    <Copy SourceFiles="@(ServerComponents)" DestinationFolder="$(TarkovDir)SPT_Runtime\user\mods\mpstark-dynamicmaps\%(RecursiveDir)" />
-
-    <!-- Creates a release zip file -->
-    <RemoveDir Directories="$(ProjectDir)release" />
-    <Copy SourceFiles="@(OutputDLL);@(Resources);@(License)" DestinationFolder="$(ProjectDir)release\DynamicMaps\BepInEx\plugins\mpstark-dynamicmaps\%(RecursiveDir)" />
-    <Copy SourceFiles="@(ManagedDlls)" DestinationFolder="$(ProjectDir)release\DynamicMaps\EscapeFromTarkov_Data\%(RecursiveDir)" />
-    <Copy SourceFiles="@(ServerComponents)" DestinationFolder="$(ProjectDir)release\DynamicMaps\SPT_Runtime\user\mods\mpstark-dynamicmaps\%(RecursiveDir)" />
-    <ZipDirectory SourceDirectory="$(ProjectDir)release\DynamicMaps\" DestinationFile="$(ProjectDir)release\DynamicMaps-$(Version).zip" />
+    <MakeDir Directories="$(PluginDeployDir)" />
+    <Copy SourceFiles="$(PluginDeployDir)$(TargetName).dll" DestinationFiles="$(PluginDeployDir)$(TargetName).dll.orig" Condition="Exists('$(PluginDeployDir)$(TargetName).dll') And !Exists('$(PluginDeployDir)$(TargetName).dll.orig')" />
+    <Delete Files="$(PluginDeployDir)$(TargetName).dll.bak" ContinueOnError="true" />
+    <Move SourceFiles="$(PluginDeployDir)$(TargetName).dll" DestinationFiles="$(PluginDeployDir)$(TargetName).dll.bak" Condition="Exists('$(PluginDeployDir)$(TargetName).dll')" />
+    <Copy SourceFiles="@(OutputDLL)" DestinationFolder="$(PluginDeployDir)" />
   </Target>
 
 </Project>

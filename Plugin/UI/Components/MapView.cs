@@ -44,6 +44,7 @@ namespace DynamicMaps.UI.Components
         private List<MapMarker> _markers = new List<MapMarker>();
         private List<MapLayer> _layers = new List<MapLayer>();
         private List<MapLabel> _labels = new List<MapLabel>();
+        private readonly List<ILayerBound> _extraBounds = new List<ILayerBound>();
 
         public static MapView Create(GameObject parent, string name)
         {
@@ -117,6 +118,29 @@ namespace DynamicMaps.UI.Components
                                                 _markerSize, -CoordinateRotation, 1f/ZoomCurrent);
             AddMapMarker(marker);
             return marker;
+        }
+
+        // Fork addition: lets non-marker overlays (e.g. the scav heatmap) take part in per-floor layer status
+        public void AddLayerBound(ILayerBound bound)
+        {
+            if (_extraBounds.Contains(bound))
+            {
+                return;
+            }
+
+            _extraBounds.Add(bound);
+            UpdateLayerBound(bound);
+        }
+
+        public void RemoveLayerBound(ILayerBound bound)
+        {
+            _extraBounds.Remove(bound);
+        }
+
+        /// <summary>Level (floor) of the layer containing the coordinate, or null if no layer matches.</summary>
+        public int? GetLevelAt(Vector3 coordinate)
+        {
+            return FindMatchingLayerByCoordinate(coordinate)?.Level;
         }
 
         public IEnumerable<MapMarker> GetMapMarkersByCategory(string category)
@@ -557,7 +581,7 @@ namespace DynamicMaps.UI.Components
 
         private void UpdateLayerStatus()
         {
-            var theBound = _markers.Cast<ILayerBound>().Concat(_labels);
+            var theBound = _markers.Cast<ILayerBound>().Concat(_labels).Concat(_extraBounds).ToList();
             foreach (var bound in theBound)
             {
                 UpdateLayerBound(bound);

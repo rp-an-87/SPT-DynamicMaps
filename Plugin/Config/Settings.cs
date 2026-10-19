@@ -130,6 +130,21 @@ namespace DynamicMaps.Config
         
         #endregion
         
+        #region Scav Heatmap
+
+        private const string ScavHeatmapTitle = "8. Scav Heatmap";
+        public static ConfigEntry<bool> ShowScavHeatmapInRaid;
+        public static ConfigEntry<int> ScavHeatmapIntelLevel;
+        public static ConfigEntry<float> ScavHeatmapCellSize;
+        public static ConfigEntry<int> ScavHeatmapScavsForFullHeat;
+        public static ConfigEntry<float> ScavHeatmapRange;
+        public static ConfigEntry<float> ScavHeatmapFadeSeconds;
+        public static ConfigEntry<float> ScavHeatmapUpdateSeconds;
+        public static ConfigEntry<float> ScavHeatmapMaxOpacity;
+        public static ConfigEntry<Color> ScavHeatmapColor;
+
+        #endregion
+
         #region External Mod Support
         
         private const string ExternModSupport = "7. External Mod Support";
@@ -912,6 +927,87 @@ namespace DynamicMaps.Config
             #endregion
             
             #region ExternalModSupport
+
+            ConfigEntries.Add(ShowScavHeatmapInRaid = config.Bind(
+                ScavHeatmapTitle,
+                "Show Scav Heatmap",
+                true,
+                new ConfigDescription(
+                    "Shows a heatmap of scav activity on the map in-raid instead of exact positions. Heat fades out slowly after scavs leave or die.",
+                    null,
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapIntelLevel = config.Bind(
+                ScavHeatmapTitle,
+                "Intel level required to show heatmap",
+                0,
+                new ConfigDescription(
+                    "If intel level is at or above this value it will show the scav heatmap. 0 shows it at any intel level.",
+                    new AcceptableValueRange<int>(0, 3),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapCellSize = config.Bind(
+                ScavHeatmapTitle,
+                "Cell size (m)",
+                60f,
+                new ConfigDescription(
+                    "Size of one heat cell in meters. Smaller = finer, more precise heatmap. Larger = vaguer.",
+                    new AcceptableValueRange<float>(20f, 250f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapScavsForFullHeat = config.Bind(
+                ScavHeatmapTitle,
+                "Scavs for full heat",
+                3,
+                new ConfigDescription(
+                    "How many scavs in one cell make it fully hot. Lower = hotter, more saturated map.",
+                    new AcceptableValueRange<int>(1, 10),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapRange = config.Bind(
+                ScavHeatmapTitle,
+                "Range (m)",
+                250f,
+                new ConfigDescription(
+                    "Only scavs within this distance of you are shown on the heatmap. 0 = whole map.",
+                    new AcceptableValueRange<float>(0f, 1500f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapFadeSeconds = config.Bind(
+                ScavHeatmapTitle,
+                "Fadeout time (s)",
+                45f,
+                new ConfigDescription(
+                    "How long a cell takes to fade from full heat to nothing after the scavs in it die or leave.",
+                    new AcceptableValueRange<float>(5f, 300f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapUpdateSeconds = config.Bind(
+                ScavHeatmapTitle,
+                "Update interval (s)",
+                5f,
+                new ConfigDescription(
+                    "How often scav positions are sampled. Higher = less precise, cheaper, and less revealing.",
+                    new AcceptableValueRange<float>(1f, 30f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapMaxOpacity = config.Bind(
+                ScavHeatmapTitle,
+                "Max opacity",
+                0.6f,
+                new ConfigDescription(
+                    "Opacity of a fully hot cell.",
+                    new AcceptableValueRange<float>(0.1f, 1f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapColor = config.Bind(
+                ScavHeatmapTitle,
+                "Hot color",
+                new Color(1f, 0.25f, 0.1f),
+                new ConfigDescription(
+                    "Color of the hottest cells. Cooler cells blend towards yellow.",
+                    null,
+                    new ConfigurationManagerAttributes { })));
 
             ConfigEntries.Add(ShowHeliCrashMarker = config.Bind(
                 ExternModSupport,
