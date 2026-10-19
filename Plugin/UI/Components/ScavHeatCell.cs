@@ -6,9 +6,9 @@ using UnityEngine.UI;
 namespace DynamicMaps.UI.Components
 {
     /// <summary>
-    /// One heat blob of the scav heatmap, centered on a scav: a soft round sprite sized in map meters (so it scales
-    /// with the map, unlike markers). Takes part in per-floor layer status through ILayerBound, like markers do.
-    /// Overlapping blobs stack, so groups of scavs show up as hotter areas.
+    /// One heat blob of the scav heatmap, standing for a single scav or a pack of nearby scavs: a soft round sprite
+    /// sized in map meters (so it scales with the map, unlike markers). Takes part in per-floor layer status through
+    /// ILayerBound, like markers do. Overlapping blobs stack, so crowded areas show up as hotter.
     /// </summary>
     public class ScavHeatCell : MonoBehaviour, ILayerBound
     {
@@ -19,16 +19,32 @@ namespace DynamicMaps.UI.Components
         public Image Image { get; private set; }
         public RectTransform RectTransform => gameObject.transform as RectTransform;
 
-        /// <summary>1 while a scav is being tracked, 0 once it died or left; heat moves towards this value over time.</summary>
+        /// <summary>1 while scavs are being tracked here, 0 once they died or left; heat moves towards this value over time.</summary>
         public float Target { get; set; }
         public float Heat { get; set; }
 
-        /// <summary>The heat that was last drawn; used to skip redraws (every redraw rebuilds the UI canvas).</summary>
+        /// <summary>How many scavs this blob stands for (a pack merged into one blob counts more than a lone scav).</summary>
+        public int Weight { get; set; } = 1;
+
+        /// <summary>Weight as drawn; moves towards <see cref="Weight"/> over time so a scav dying in a pack fades instead of popping.</summary>
+        public float DisplayWeight { get; set; } = 1f;
+
+        /// <summary>What was last drawn; used to skip redraws (every redraw rebuilds the UI canvas).</summary>
         public float AppliedHeat { get; private set; } = -1f;
+        public float AppliedWeight { get; private set; } = -1f;
 
         public float Radius { get; private set; }
 
-        /// <summary>Where the tracked scav is; the blob glides towards it between samples.</summary>
+        /// <summary>Map level (floor) this blob is on.</summary>
+        public int Level { get; set; }
+
+        /// <summary>Real, un-fuzzed center of the tracked scav(s).</summary>
+        public Vector3 Centroid { get; set; }
+
+        /// <summary>Stable offset (chosen once, never re-rolled) so the blob center doesn't give away where the scav is.</summary>
+        public Vector2 Offset { get; set; }
+
+        /// <summary>Where the blob is gliding to: centroid plus offset.</summary>
         public Vector3 TargetPosition { get; set; }
 
         private float _levelAlpha = 1f;
@@ -57,6 +73,7 @@ namespace DynamicMaps.UI.Components
             cell.SetRadius(radiusMeters);
             cell.Position = position;
             cell.TargetPosition = position;
+            cell.Centroid = position;
             go.transform.SetAsFirstSibling();  // draw underneath markers
 
             return cell;
@@ -79,18 +96,23 @@ namespace DynamicMaps.UI.Components
         {
             var heat = Mathf.Clamp01(Heat);
             AppliedHeat = heat;
+            AppliedWeight = DisplayWeight;
+
+            // a blob standing for n scavs looks like n stacked single-scav blobs: 1 - (1 - a)^n
+            var weightedOpacity = 1f - Mathf.Pow(1f - GetPerScavOpacity(), Mathf.Max(0.01f, DisplayWeight));
+
             var color = Color.Lerp(_coolColor, Settings.ScavHeatmapColor.Value, heat);
-            color.a = heat * GetPerBlobOpacity() * _levelAlpha;
+            color.a = heat * weightedOpacity * _levelAlpha;
 
             Image.color = color;
             Image.enabled = color.a > 0.004f;
         }
 
         /// <summary>
-        /// Opacity of a single fully hot blob, chosen so that "scavs for full heat" overlapping blobs reach the
-        /// configured max opacity (stacked alpha: 1 - (1 - a)^n).
+        /// Opacity of a single fully hot scav, chosen so that "scavs for full heat" of them stacked reach the
+        /// configured max opacity.
         /// </summary>
-        private static float GetPerBlobOpacity()
+        private static float GetPerScavOpacity()
         {
             var maxOpacity = Mathf.Clamp(Settings.ScavHeatmapMaxOpacity.Value, 0.05f, 0.99f);
             var scavsForFullHeat = Mathf.Max(1, Settings.ScavHeatmapScavsForFullHeat.Value);

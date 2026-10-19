@@ -136,6 +136,9 @@ namespace DynamicMaps.Config
         public static ConfigEntry<bool> ShowScavHeatmapInRaid;
         public static ConfigEntry<int> ScavHeatmapIntelLevel;
         public static ConfigEntry<float> ScavHeatmapRadius;
+        public static ConfigEntry<float> ScavHeatmapRadiusReduction;
+        public static ConfigEntry<float> ScavHeatmapFuzz;
+        public static ConfigEntry<float> ScavHeatmapMergeDistance;
         public static ConfigEntry<int> ScavHeatmapScavsForFullHeat;
         public static ConfigEntry<float> ScavHeatmapRange;
         public static ConfigEntry<float> ScavHeatmapFadeSeconds;
@@ -949,11 +952,38 @@ namespace DynamicMaps.Config
 
             ConfigEntries.Add(ScavHeatmapRadius = config.Bind(
                 ScavHeatmapTitle,
-                "Heat radius (m)",
-                70f,
+                "Base heat radius (m)",
+                250f,
                 new ConfigDescription(
-                    "Radius of the heat blob around each scav, in meters. Smaller = more precise. Larger = vaguer, and blobs of nearby scavs overlap more.",
-                    new AcceptableValueRange<float>(20f, 300f),
+                    "Radius of a heat blob at intel level 0, in meters. Bigger = vaguer. Each hideout intel level shrinks it (see below), but never below 50 m.",
+                    new AcceptableValueRange<float>(50f, 400f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapRadiusReduction = config.Bind(
+                ScavHeatmapTitle,
+                "Radius reduction per intel level (m)",
+                30f,
+                new ConfigDescription(
+                    "How much each hideout intel level shrinks the heat radius, so higher intel gives a more precise heatmap. The radius never goes below 50 m.",
+                    new AcceptableValueRange<float>(0f, 50f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapFuzz = config.Bind(
+                ScavHeatmapTitle,
+                "Position fuzz (m)",
+                60f,
+                new ConfigDescription(
+                    "How far a blob's center is shifted away from the real scav position, in a fixed random direction chosen once per blob. Constant at every intel level. Limited to half the blob radius so scavs stay inside their blob.",
+                    new AcceptableValueRange<float>(0f, 150f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapMergeDistance = config.Bind(
+                ScavHeatmapTitle,
+                "Pack merge distance (m)",
+                100f,
+                new ConfigDescription(
+                    "Scavs on the same floor closer together than this are shown as one blob at their group center, and the blob grows to cover the pack. 0 = no merging, one blob per scav.",
+                    new AcceptableValueRange<float>(0f, 300f),
                     new ConfigurationManagerAttributes { })));
 
             ConfigEntries.Add(ScavHeatmapScavsForFullHeat = config.Bind(
