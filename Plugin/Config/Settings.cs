@@ -135,17 +135,66 @@ namespace DynamicMaps.Config
         private const string ScavHeatmapTitle = "8. Scav Heatmap";
         public static ConfigEntry<bool> ShowScavHeatmapInRaid;
         public static ConfigEntry<int> ScavHeatmapIntelLevel;
-        public static ConfigEntry<float> ScavHeatmapRadius;
-        public static ConfigEntry<float> ScavHeatmapRadiusReduction;
+        public static ConfigEntry<bool> ScavHeatmapIncludeRogueRaiders;
+        public static ConfigEntry<int> ScavHeatmapRogueRaiderIntelLevel;
         public static ConfigEntry<float> ScavHeatmapFuzz;
         public static ConfigEntry<float> ScavHeatmapMergeDistance;
         public static ConfigEntry<int> ScavHeatmapScavsForFullHeat;
         public static ConfigEntry<float> ScavHeatmapRange;
         public static ConfigEntry<float> ScavHeatmapFadeSeconds;
-        public static ConfigEntry<float> ScavHeatmapFadeInSeconds;
         public static ConfigEntry<float> ScavHeatmapUpdateSeconds;
         public static ConfigEntry<float> ScavHeatmapMaxOpacity;
         public static ConfigEntry<Color> ScavHeatmapColor;
+
+        /// <summary>Per-map heatmap settings, looked up by the game's location id (several ids can share one map).</summary>
+        public class ScavHeatmapMapSettings
+        {
+            public string Name;
+            public ConfigEntry<bool> Enabled;
+            public ConfigEntry<float> Radius;
+            public ConfigEntry<float> Reduction;
+        }
+
+        public static readonly Dictionary<string, ScavHeatmapMapSettings> ScavHeatmapMaps = new Dictionary<string, ScavHeatmapMapSettings>();
+
+        private static void BindScavHeatmapMap(ConfigFile config, string order, string displayName, string[] locationIds,
+                                               bool enabled, float radius, float reduction)
+        {
+            var section = "8." + order + " Scav Heatmap - " + displayName;
+            var map = new ScavHeatmapMapSettings { Name = displayName };
+
+            ConfigEntries.Add(map.Enabled = config.Bind(
+                section,
+                "Enabled",
+                enabled,
+                new ConfigDescription(
+                    "Show the scav heatmap on " + displayName + ".",
+                    null,
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(map.Radius = config.Bind(
+                section,
+                "Base heat radius (m)",
+                radius,
+                new ConfigDescription(
+                    "Radius of a heat blob at intel level 0, in meters. Bigger = vaguer. Each hideout intel level shrinks it, but never below 50 m.",
+                    new AcceptableValueRange<float>(50f, 400f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(map.Reduction = config.Bind(
+                section,
+                "Radius reduction per intel level (m)",
+                reduction,
+                new ConfigDescription(
+                    "How much each hideout intel level shrinks the heat radius, so higher intel gives a more precise heatmap. The radius never goes below 50 m.",
+                    new AcceptableValueRange<float>(0f, 50f),
+                    new ConfigurationManagerAttributes { })));
+
+            foreach (var id in locationIds)
+            {
+                ScavHeatmapMaps[id] = map;
+            }
+        }
 
         #endregion
 
@@ -950,22 +999,22 @@ namespace DynamicMaps.Config
                     new AcceptableValueRange<int>(0, 3),
                     new ConfigurationManagerAttributes { })));
 
-            ConfigEntries.Add(ScavHeatmapRadius = config.Bind(
+            ConfigEntries.Add(ScavHeatmapIncludeRogueRaiders = config.Bind(
                 ScavHeatmapTitle,
-                "Base heat radius (m)",
-                250f,
+                "Include Rogues and Raiders",
+                true,
                 new ConfigDescription(
-                    "Radius of a heat blob at intel level 0, in meters. Bigger = vaguer. Each hideout intel level shrinks it (see below), but never below 50 m.",
-                    new AcceptableValueRange<float>(50f, 400f),
+                    "Also show Rogues and Raiders on the heatmap (merged with scavs). They only show at or above the intel level set below.",
+                    null,
                     new ConfigurationManagerAttributes { })));
 
-            ConfigEntries.Add(ScavHeatmapRadiusReduction = config.Bind(
+            ConfigEntries.Add(ScavHeatmapRogueRaiderIntelLevel = config.Bind(
                 ScavHeatmapTitle,
-                "Radius reduction per intel level (m)",
-                30f,
+                "Intel level required for Rogues and Raiders",
+                2,
                 new ConfigDescription(
-                    "How much each hideout intel level shrinks the heat radius, so higher intel gives a more precise heatmap. The radius never goes below 50 m.",
-                    new AcceptableValueRange<float>(0f, 50f),
+                    "If intel level is at or above this value, Rogues and Raiders are included on the heatmap (when included above).",
+                    new AcceptableValueRange<int>(0, 3),
                     new ConfigurationManagerAttributes { })));
 
             ConfigEntries.Add(ScavHeatmapFuzz = config.Bind(
@@ -1013,15 +1062,6 @@ namespace DynamicMaps.Config
                     new AcceptableValueRange<float>(2f, 300f),
                     new ConfigurationManagerAttributes { })));
 
-            ConfigEntries.Add(ScavHeatmapFadeInSeconds = config.Bind(
-                ScavHeatmapTitle,
-                "Fade-in time (s)",
-                8f,
-                new ConfigDescription(
-                    "How long a cell takes to build up to full heat once scavs are sampled in it, so new spawns don't make heat pop in instantly. 0 = instant.",
-                    new AcceptableValueRange<float>(0f, 60f),
-                    new ConfigurationManagerAttributes { })));
-
             ConfigEntries.Add(ScavHeatmapUpdateSeconds = config.Bind(
                 ScavHeatmapTitle,
                 "Update interval (s)",
@@ -1048,6 +1088,19 @@ namespace DynamicMaps.Config
                     "Color of the hottest cells. Cooler cells blend towards yellow.",
                     null,
                     new ConfigurationManagerAttributes { })));
+
+            // per-map heatmap settings; big open maps get big blobs, small maps get small ones (or are off)
+            BindScavHeatmapMap(config, "01", "Customs", new[] { "bigmap" }, true, 150f, 20f);
+            BindScavHeatmapMap(config, "02", "Factory", new[] { "factory4_day", "factory4_night" }, false, 60f, 10f);
+            BindScavHeatmapMap(config, "03", "Ground Zero", new[] { "sandbox", "sandbox_high" }, true, 100f, 10f);
+            BindScavHeatmapMap(config, "04", "Interchange", new[] { "interchange" }, true, 150f, 20f);
+            BindScavHeatmapMap(config, "05", "Labs", new[] { "laboratory" }, false, 80f, 10f);
+            BindScavHeatmapMap(config, "06", "Labyrinth", new[] { "labyrinth" }, false, 80f, 10f);
+            BindScavHeatmapMap(config, "07", "Lighthouse", new[] { "lighthouse" }, true, 200f, 25f);
+            BindScavHeatmapMap(config, "08", "Reserve", new[] { "rezervbase" }, true, 120f, 15f);
+            BindScavHeatmapMap(config, "09", "Shoreline", new[] { "shoreline" }, true, 250f, 30f);
+            BindScavHeatmapMap(config, "10", "Streets", new[] { "tarkovstreets" }, true, 150f, 20f);
+            BindScavHeatmapMap(config, "11", "Woods", new[] { "woods" }, true, 250f, 30f);
 
             ConfigEntries.Add(ShowHeliCrashMarker = config.Bind(
                 ExternModSupport,

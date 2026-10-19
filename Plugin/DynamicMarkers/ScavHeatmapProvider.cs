@@ -34,6 +34,13 @@ namespace DynamicMaps.DynamicMarkers
             WildSpawnType.marksman,
         };
 
+        // Rogues (exUsec) and Raiders (pmcBot) are shown only when enabled, and only from a configurable intel level
+        private static readonly HashSet<WildSpawnType> _rogueRaiderRoles = new HashSet<WildSpawnType>
+        {
+            WildSpawnType.exUsec,
+            WildSpawnType.pmcBot,
+        };
+
         // Redraw throttles. 0 = every frame. Raise them if the map ever gets expensive with lots of scavs.
         private const float _visualInterval = 0f;    // seconds between visual updates
         private const float _minMove = 0f;           // meters; smaller position changes are not applied
@@ -73,7 +80,8 @@ namespace DynamicMaps.DynamicMarkers
             _isShown = true;
             EnsureTicker();
 
-            _lastVisualTime = Time.unscaledTime;
+            // _lastVisualTime is deliberately not reset: while the map was closed nothing ran, and the first update
+            // after reopening applies all the fadeout time that passed in one step
             Sample();
         }
 
@@ -134,7 +142,6 @@ namespace DynamicMaps.DynamicMarkers
         private void UpdateBlobs(float deltaTime)
         {
             var fadeOutSeconds = Mathf.Max(1f, Settings.ScavHeatmapFadeSeconds.Value);
-            var fadeInSeconds = Settings.ScavHeatmapFadeInSeconds.Value;
             var glide = 1f - Mathf.Exp(-_glideSpeed * deltaTime);
 
             // redraw everything when a visual setting changed (opacity, color, overlap count)
@@ -149,29 +156,21 @@ namespace DynamicMaps.DynamicMarkers
             _expired.Clear();
             foreach (var blob in _blobs)
             {
-                // heat builds up linearly while scavs are tracked (fade-in) and decays linearly once they're gone (fadeout)
-                var heat = blob.Heat;
-                if (blob.Target > heat)
-                {
-                    heat = fadeInSeconds <= 0.01f
-                        ? blob.Target
-                        : Mathf.Min(blob.Target, heat + deltaTime / fadeInSeconds);
-                }
-                else
-                {
-                    heat = Mathf.Max(blob.Target, heat - deltaTime / fadeOutSeconds);
-                }
+                // heat is full while scavs are tracked and decays linearly once they're gone (fadeout)
+                var heat = blob.Target > blob.Heat
+                    ? blob.Target
+                    : Mathf.Max(blob.Target, blob.Heat - deltaTime / fadeOutSeconds);
 
                 blob.Heat = heat;  // always keep the real value; only the redraw below is throttled
 
                 // the pack size fades too: a scav dying in a pack lowers the heat gradually instead of popping
-                if (!Mathf.Approximately(blob.DisplayWeight, blob.Weight))
+                if (blob.Weight >= blob.DisplayWeight)
                 {
-                    var up = blob.Weight > blob.DisplayWeight;
-                    var rate = up
-                        ? (fadeInSeconds <= 0.01f ? 1000f : 1f / fadeInSeconds)
-                        : 1f / fadeOutSeconds;
-                    blob.DisplayWeight = Mathf.MoveTowards(blob.DisplayWeight, blob.Weight, deltaTime * rate);
+                    blob.DisplayWeight = blob.Weight;
+                }
+                else
+                {
+                    blob.DisplayWeight = Mathf.MoveTowards(blob.DisplayWeight, blob.Weight, deltaTime / fadeOutSeconds);
                 }
 
                 if (blob.Target > 0f && (blob.TargetPosition - blob.Position).sqrMagnitude > _minMove * _minMove)
@@ -209,19 +208,24 @@ namespace DynamicMaps.DynamicMarkers
 
             var gameWorld = Singleton<GameWorld>.Instance;
             var mainPlayer = GameUtils.GetMainPlayer();
+            var intelLevel = GameUtils.GetIntelLevel() ?? 0;
+            var mapSettings = GetMapSettings(gameWorld);
             var canTrack = gameWorld != null && mainPlayer != null && _map != null && GameUtils.IsInRaid()
                            // same rule as the other intel-gated markers, except that 0 means "any intel level"
-                           && (GameUtils.GetIntelLevel() ?? 0) >= Settings.ScavHeatmapIntelLevel.Value;
+                           && intelLevel >= Settings.ScavHeatmapIntelLevel.Value
+                           && (mapSettings == null || mapSettings.Enabled.Value);
 
             if (canTrack)
             {
                 var range = Settings.ScavHeatmapRange.Value;
                 var origin = mainPlayer.Position;
+                var includeRogueRaiders = Settings.ScavHeatmapIncludeRogueRaiders.Value
+                                          && intelLevel >= Settings.ScavHeatmapRogueRaiderIntelLevel.Value;
 
                 foreach (var player in gameWorld.AllAlivePlayersList)
                 {
                     if (player == null || player.IsYourPlayer || player.IsHeadlessClient() || player.IsBTRShooter()
-                        || !IsRegularScav(player) || player.HasCorpse())
+                        || !IsTracked(player, includeRogueRaiders) || player.HasCorpse())
                     {
                         continue;
                     }
@@ -238,7 +242,16 @@ namespace DynamicMaps.DynamicMarkers
                 BuildClusters();
             }
 
-            ApplyClusters();
+            ApplyClusters(mapSettings, intelLevel);
+        }
+
+        /// <summary>Per-map settings for the current location, or null if the map is unknown.</summary>
+        private static Settings.ScavHeatmapMapSettings GetMapSettings(GameWorld gameWorld)
+        {
+            var locationId = gameWorld?.LocationId?.ToLowerInvariant();
+            return locationId != null && Settings.ScavHeatmapMaps.TryGetValue(locationId, out var mapSettings)
+                ? mapSettings
+                : null;
         }
 
         /// <summary>Merges scavs on the same floor that are within the merge distance into packs.</summary>
@@ -285,7 +298,7 @@ namespace DynamicMaps.DynamicMarkers
         /// Hands the packs to blobs. Packs are matched to the closest blob that is still tracking scavs, so a blob keeps
         /// its fade state and its offset as its scavs move; new packs get a new blob, blobs without a pack start fading out.
         /// </summary>
-        private void ApplyClusters()
+        private void ApplyClusters(Settings.ScavHeatmapMapSettings mapSettings, int intelLevel)
         {
             _tracked.Clear();
             foreach (var blob in _blobs)
@@ -319,7 +332,7 @@ namespace DynamicMaps.DynamicMarkers
 
             var clusterUsed = new bool[_clusters.Count];
             var blobUsed = new bool[_tracked.Count];
-            var radius = GetIntelRadius();
+            var radius = GetIntelRadius(mapSettings, intelLevel);
 
             foreach (var pair in _pairs)
             {
@@ -386,11 +399,12 @@ namespace DynamicMaps.DynamicMarkers
         }
 
         /// <summary>Radius shrinks with the hideout intel level, but never below the minimum.</summary>
-        private static float GetIntelRadius()
+        private static float GetIntelRadius(Settings.ScavHeatmapMapSettings mapSettings, int intelLevel)
         {
-            var intelLevel = GameUtils.GetIntelLevel() ?? 0;
-            var radius = Settings.ScavHeatmapRadius.Value - intelLevel * Settings.ScavHeatmapRadiusReduction.Value;
-            return Mathf.Max(_minRadius, radius);
+            // unknown map: fall back to a middle-of-the-road radius
+            var baseRadius = mapSettings?.Radius.Value ?? 150f;
+            var reduction = mapSettings?.Reduction.Value ?? 20f;
+            return Mathf.Max(_minRadius, baseRadius - intelLevel * reduction);
         }
 
         /// <summary>A random direction and a 0.5-1 fraction of the fuzz distance, chosen once per blob and never re-rolled.</summary>
@@ -412,9 +426,15 @@ namespace DynamicMaps.DynamicMarkers
             return Mathf.Sqrt(dx * dx + dy * dy);
         }
 
-        private static bool IsRegularScav(Player player)
+        private static bool IsTracked(Player player, bool includeRogueRaiders)
         {
-            return player.IsScav() && _scavRoles.Contains(player.Profile.Info.Settings.Role);
+            if (!player.IsScav())
+            {
+                return false;
+            }
+
+            var role = player.Profile.Info.Settings.Role;
+            return _scavRoles.Contains(role) || (includeRogueRaiders && _rogueRaiderRoles.Contains(role));
         }
 
         private void EnsureTicker()
