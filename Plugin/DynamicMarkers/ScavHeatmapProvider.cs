@@ -95,13 +95,24 @@ namespace DynamicMaps.DynamicMarkers
             var deltaTime = Mathf.Max(0f, now - _lastUpdateTime);
             _lastUpdateTime = now;
 
-            var fadeSeconds = Mathf.Max(1f, Settings.ScavHeatmapFadeSeconds.Value);
+            var fadeOutSeconds = Mathf.Max(1f, Settings.ScavHeatmapFadeSeconds.Value);
+            var fadeInSeconds = Settings.ScavHeatmapFadeInSeconds.Value;
             var expired = new List<(int, int, int)>();
             foreach (var entry in _cells)
             {
                 var cell = entry.Value;
-                // heat jumps up to the sampled value but only decays linearly, over the configured fadeout time
-                cell.Heat = Mathf.Max(cell.Target, cell.Heat - deltaTime / fadeSeconds);
+                // heat builds up linearly towards the sampled value (fade-in) and decays linearly (fadeout)
+                if (cell.Target > cell.Heat)
+                {
+                    cell.Heat = fadeInSeconds <= 0.01f
+                        ? cell.Target
+                        : Mathf.Min(cell.Target, cell.Heat + deltaTime / fadeInSeconds);
+                }
+                else
+                {
+                    cell.Heat = Mathf.Max(cell.Target, cell.Heat - deltaTime / fadeOutSeconds);
+                }
+
                 cell.ApplyVisual();
 
                 if (cell.Target <= 0f && cell.Heat <= 0.01f)

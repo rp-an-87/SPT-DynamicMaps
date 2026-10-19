@@ -139,6 +139,7 @@ namespace DynamicMaps.Config
         public static ConfigEntry<int> ScavHeatmapScavsForFullHeat;
         public static ConfigEntry<float> ScavHeatmapRange;
         public static ConfigEntry<float> ScavHeatmapFadeSeconds;
+        public static ConfigEntry<float> ScavHeatmapFadeInSeconds;
         public static ConfigEntry<float> ScavHeatmapUpdateSeconds;
         public static ConfigEntry<float> ScavHeatmapMaxOpacity;
         public static ConfigEntry<Color> ScavHeatmapColor;
@@ -967,7 +968,7 @@ namespace DynamicMaps.Config
             ConfigEntries.Add(ScavHeatmapRange = config.Bind(
                 ScavHeatmapTitle,
                 "Range (m)",
-                250f,
+                0f,
                 new ConfigDescription(
                     "Only scavs within this distance of you are shown on the heatmap. 0 = whole map.",
                     new AcceptableValueRange<float>(0f, 1500f),
@@ -976,10 +977,19 @@ namespace DynamicMaps.Config
             ConfigEntries.Add(ScavHeatmapFadeSeconds = config.Bind(
                 ScavHeatmapTitle,
                 "Fadeout time (s)",
-                45f,
+                20f,
                 new ConfigDescription(
                     "How long a cell takes to fade from full heat to nothing after the scavs in it die or leave.",
-                    new AcceptableValueRange<float>(5f, 300f),
+                    new AcceptableValueRange<float>(2f, 300f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapFadeInSeconds = config.Bind(
+                ScavHeatmapTitle,
+                "Fade-in time (s)",
+                8f,
+                new ConfigDescription(
+                    "How long a cell takes to build up to full heat once scavs are sampled in it, so new spawns don't make heat pop in instantly. 0 = instant.",
+                    new AcceptableValueRange<float>(0f, 60f),
                     new ConfigurationManagerAttributes { })));
 
             ConfigEntries.Add(ScavHeatmapUpdateSeconds = config.Bind(
