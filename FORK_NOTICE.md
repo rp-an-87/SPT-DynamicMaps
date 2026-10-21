@@ -13,7 +13,7 @@ Branch `scav-heatmap` adds an optional **scav heatmap** overlay in-raid, instead
 - One soft heat blob per scav, or per pack of nearby scavs (merge distance), updated every couple of seconds.
 - A stable random offset per blob, so the center doesn't point at a scav.
 - Blob radius shrinks with the hideout Intelligence Center level, never below 50 m.
-- Per-map settings (enabled, base radius, radius reduction per intel level) in their own F12 sections.
+- Per-map settings (enabled, base radius, radius reduction per intel level, pack merge distance) in their own F12 sections.
 - Optional inclusion of Rogues and Raiders from a configurable intel level.
 - Heat fades out after scavs die or leave; per-floor visibility follows the map layers, like markers.
 - Respects the server's existing "allow scav markers" permission.

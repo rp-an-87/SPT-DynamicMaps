@@ -48,6 +48,7 @@ namespace DynamicMaps.DynamicMarkers
 
         private const float _glideSpeed = 4f;        // how quickly a blob glides to a newly sampled position
         private const float _minRadius = 50f;        // the radius never goes below this, whatever the intel level
+        private float _mergeDistance;                // the current map's pack merge distance
         private const float _extentPadding = 25f;    // a merged blob covers its scavs' spread plus this much
         private const float _maxOffsetOfRadius = 0.5f;  // the offset never moves the blob more than this part of its radius
 
@@ -215,6 +216,8 @@ namespace DynamicMaps.DynamicMarkers
                            && intelLevel >= Settings.ScavHeatmapIntelLevel.Value
                            && (mapSettings == null || mapSettings.Enabled.Value);
 
+            _mergeDistance = mapSettings != null ? mapSettings.MergeDistance.Value : Settings.ScavHeatmapMergeDistance.Value;
+
             if (canTrack)
             {
                 var range = Settings.ScavHeatmapRange.Value;
@@ -257,7 +260,7 @@ namespace DynamicMaps.DynamicMarkers
         /// <summary>Merges scavs on the same floor that are within the merge distance into packs.</summary>
         private void BuildClusters()
         {
-            var mergeDistance = Settings.ScavHeatmapMergeDistance.Value;
+            var mergeDistance = _mergeDistance;
 
             foreach (var scav in _scavs)
             {
@@ -309,7 +312,7 @@ namespace DynamicMaps.DynamicMarkers
                 }
             }
 
-            var maxMatchDistance = Mathf.Max(60f, Settings.ScavHeatmapMergeDistance.Value + 20f);
+            var maxMatchDistance = Mathf.Max(60f, _mergeDistance + 20f);
             _pairs.Clear();
             for (var c = 0; c < _clusters.Count; c++)
             {

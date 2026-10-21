@@ -153,12 +153,13 @@ namespace DynamicMaps.Config
             public ConfigEntry<bool> Enabled;
             public ConfigEntry<float> Radius;
             public ConfigEntry<float> Reduction;
+            public ConfigEntry<float> MergeDistance;
         }
 
         public static readonly Dictionary<string, ScavHeatmapMapSettings> ScavHeatmapMaps = new Dictionary<string, ScavHeatmapMapSettings>();
 
         private static void BindScavHeatmapMap(ConfigFile config, string order, string displayName, string[] locationIds,
-                                               bool enabled, float radius, float reduction)
+                                               bool enabled, float radius, float reduction, float? mergeDistance = null)
         {
             var section = "8." + order + " Scav Heatmap - " + displayName;
             var map = new ScavHeatmapMapSettings { Name = displayName };
@@ -188,6 +189,16 @@ namespace DynamicMaps.Config
                 new ConfigDescription(
                     "How much each hideout intel level shrinks the heat radius, so higher intel gives a more precise heatmap. The radius never goes below 50 m.",
                     new AcceptableValueRange<float>(0f, 50f),
+                    new ConfigurationManagerAttributes { })));
+
+            // defaults to the general merge distance, so an existing setup keeps its look until a map is changed
+            ConfigEntries.Add(map.MergeDistance = config.Bind(
+                section,
+                "Pack merge distance (m)",
+                mergeDistance ?? ScavHeatmapMergeDistance.Value,
+                new ConfigDescription(
+                    "Scavs on the same floor closer together than this are shown as one blob at their group center. Lower it on small maps so the heatmap doesn't turn into one big blob. 0 = no merging, one blob per scav.",
+                    new AcceptableValueRange<float>(0f, 300f),
                     new ConfigurationManagerAttributes { })));
 
             foreach (var id in locationIds)
@@ -1031,7 +1042,7 @@ namespace DynamicMaps.Config
                 "Pack merge distance (m)",
                 100f,
                 new ConfigDescription(
-                    "Scavs on the same floor closer together than this are shown as one blob at their group center, and the blob grows to cover the pack. 0 = no merging, one blob per scav.",
+                    "Scavs on the same floor closer together than this are shown as one blob at their group center, and the blob grows to cover the pack. 0 = no merging, one blob per scav. Maps have their own value in their section; this one is only used for maps without one.",
                     new AcceptableValueRange<float>(0f, 300f),
                     new ConfigurationManagerAttributes { })));
 
@@ -1091,11 +1102,11 @@ namespace DynamicMaps.Config
 
             // per-map heatmap settings; big open maps get big blobs, small maps get small ones (or are off)
             BindScavHeatmapMap(config, "01", "Customs", new[] { "bigmap" }, true, 150f, 20f);
-            BindScavHeatmapMap(config, "02", "Factory", new[] { "factory4_day", "factory4_night" }, false, 60f, 10f);
+            BindScavHeatmapMap(config, "02", "Factory", new[] { "factory4_day", "factory4_night" }, false, 60f, 10f, 25f);
             BindScavHeatmapMap(config, "03", "Ground Zero", new[] { "sandbox", "sandbox_high" }, true, 100f, 10f);
             BindScavHeatmapMap(config, "04", "Interchange", new[] { "interchange" }, true, 150f, 20f);
-            BindScavHeatmapMap(config, "05", "Labs", new[] { "laboratory" }, false, 80f, 10f);
-            BindScavHeatmapMap(config, "06", "Labyrinth", new[] { "labyrinth" }, false, 80f, 10f);
+            BindScavHeatmapMap(config, "05", "Labs", new[] { "laboratory" }, false, 80f, 10f, 40f);
+            BindScavHeatmapMap(config, "06", "Labyrinth", new[] { "labyrinth" }, false, 80f, 10f, 40f);
             BindScavHeatmapMap(config, "07", "Lighthouse", new[] { "lighthouse" }, true, 200f, 25f);
             BindScavHeatmapMap(config, "08", "Reserve", new[] { "rezervbase" }, true, 120f, 15f);
             BindScavHeatmapMap(config, "09", "Shoreline", new[] { "shoreline" }, true, 250f, 30f);
