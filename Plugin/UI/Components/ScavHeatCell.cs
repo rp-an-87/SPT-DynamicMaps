@@ -47,7 +47,7 @@ namespace DynamicMaps.UI.Components
         /// <summary>Where the blob is gliding to: centroid plus offset.</summary>
         public Vector3 TargetPosition { get; set; }
 
-        private float _levelAlpha = 1f;
+        private LayerStatus _status = LayerStatus.FullReveal;
         private Vector3 _position;
         public Vector3 Position
         {
@@ -87,8 +87,7 @@ namespace DynamicMaps.UI.Components
 
         public void HandleNewLayerStatus(LayerStatus status)
         {
-            // only the selected floor shows heat, like scav markers
-            _levelAlpha = status == LayerStatus.OnTop || status == LayerStatus.FullReveal ? 1f : 0f;
+            _status = status;
             ApplyVisual();
         }
 
@@ -101,8 +100,11 @@ namespace DynamicMaps.UI.Components
             // a blob standing for n scavs looks like n stacked single-scav blobs: 1 - (1 - a)^n
             var weightedOpacity = 1f - Mathf.Pow(1f - GetPerScavOpacity(), Mathf.Max(0.01f, DisplayWeight));
 
+            // only the selected floor shows heat, like scav markers, unless the heatmap is flat
+            var levelAlpha = Settings.ScavHeatmapAllFloors.Value || _status == LayerStatus.OnTop || _status == LayerStatus.FullReveal ? 1f : 0f;
+
             var color = Color.Lerp(_coolColor, Settings.ScavHeatmapColor.Value, heat);
-            color.a = heat * weightedOpacity * _levelAlpha;
+            color.a = heat * weightedOpacity * levelAlpha;
 
             Image.color = color;
             Image.enabled = color.a > 0.004f;

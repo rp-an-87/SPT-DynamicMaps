@@ -169,6 +169,29 @@ namespace DynamicMaps.UI.Components
                 {LayerStatus.FullReveal, 1f},
             };
 
+        private float _alphaScale = 1f;
+        private LayerStatus _lastLayerStatus = LayerStatus.FullReveal;
+
+        /// <summary>Multiplies the layer-status alpha, e.g. to fade out a marker that is no longer interesting.</summary>
+        public float AlphaScale
+        {
+            get
+            {
+                return _alphaScale;
+            }
+
+            set
+            {
+                if (Mathf.Approximately(_alphaScale, value))
+                {
+                    return;
+                }
+
+                _alphaScale = value;
+                HandleNewLayerStatus(_lastLayerStatus);
+            }
+        }
+
         private float _initialRotation;
         private bool _hasSetOutline = false;
         private bool _isInFullReveal = false;
@@ -290,6 +313,8 @@ namespace DynamicMaps.UI.Components
                 return;
             }
 
+            _lastLayerStatus = status;
+
             if (_isInFullReveal)
             {
                 status = LayerStatus.FullReveal;
@@ -306,6 +331,9 @@ namespace DynamicMaps.UI.Components
             {
                 labelAlpha = CategoryLabelAlphaLayerStatus[Category][status];
             }
+
+            imageAlpha *= _alphaScale;
+            labelAlpha *= _alphaScale;
 
             Image.color = new Color(Image.color.r, Image.color.g, Image.color.b, imageAlpha);
             Label.color = new Color(Label.color.r, Label.color.g, Label.color.b, labelAlpha);

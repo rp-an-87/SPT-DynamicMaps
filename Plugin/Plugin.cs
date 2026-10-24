@@ -59,6 +59,9 @@ namespace DynamicMaps
             new GameWorldDestroyLootPatch().Enable();
             new AirdropBoxOnBoxLandPatch().Enable();
             new PlayerOnDeadPatch().Enable();
+            new PlayerInteractCorpsePatch().Enable();
+            new PerceptionSkillUiPatches.SkillTooltipShowPatch().Enable();
+            new PerceptionSkillUiPatches.BuffDescriptionPatch().Enable();
             new PlayerInventoryThrowItemPatch().Enable();
             new ShowViewButtonPatch().Enable();
             new MenuLoadPatch().Enable();

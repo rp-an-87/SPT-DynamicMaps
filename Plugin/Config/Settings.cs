@@ -8,6 +8,15 @@ using UnityEngine;
 // THIS IS HEAVILY BASED ON DRAKIAXYZ'S SPT-QuickMoveToContainer
 namespace DynamicMaps.Config
 {
+    /// <summary>When a corpse not killed by the player's group gets its map marker.</summary>
+    public enum OtherCorpseReveal
+    {
+        Always,
+        Looted,
+        Close,
+        LootedOrClose,
+    }
+
     internal static class Settings
     {
         private static readonly List<ConfigEntryBase> ConfigEntries = [];
@@ -138,13 +147,25 @@ namespace DynamicMaps.Config
         public static ConfigEntry<bool> ScavHeatmapIncludeRogueRaiders;
         public static ConfigEntry<int> ScavHeatmapRogueRaiderIntelLevel;
         public static ConfigEntry<float> ScavHeatmapFuzz;
-        public static ConfigEntry<float> ScavHeatmapMergeDistance;
         public static ConfigEntry<int> ScavHeatmapScavsForFullHeat;
         public static ConfigEntry<float> ScavHeatmapRange;
         public static ConfigEntry<float> ScavHeatmapFadeSeconds;
         public static ConfigEntry<float> ScavHeatmapUpdateSeconds;
         public static ConfigEntry<float> ScavHeatmapMaxOpacity;
         public static ConfigEntry<Color> ScavHeatmapColor;
+        public static ConfigEntry<bool> ScavHeatmapAllFloors;
+
+        private const string CorpseMarkersTitle = "9. Corpse Markers";
+        public static ConfigEntry<float> LootedCorpseAlpha;
+        public static ConfigEntry<bool> OnlyShowNearbyCorpses;
+        public static ConfigEntry<OtherCorpseReveal> OtherCorpsesReveal;
+        public static ConfigEntry<bool> RevealKilledCorpsesAfterDelay;
+        public static ConfigEntry<float> CorpseRevealDelaySeconds;
+        public static ConfigEntry<float> CorpseRevealRadius;
+        public static ConfigEntry<float> CorpseRevealRadiusPerPerceptionLevel;
+        public static ConfigEntry<float> CorpseRevealRadiusEliteBonus;
+        public static ConfigEntry<float> OtherCorpseCloseRadius;
+        public static ConfigEntry<float> EliteOtherCorpseRadius;
 
         /// <summary>Per-map heatmap settings, looked up by the game's location id (several ids can share one map).</summary>
         public class ScavHeatmapMapSettings
@@ -159,7 +180,7 @@ namespace DynamicMaps.Config
         public static readonly Dictionary<string, ScavHeatmapMapSettings> ScavHeatmapMaps = new Dictionary<string, ScavHeatmapMapSettings>();
 
         private static void BindScavHeatmapMap(ConfigFile config, string order, string displayName, string[] locationIds,
-                                               bool enabled, float radius, float reduction, float? mergeDistance = null)
+                                               bool enabled, float radius, float reduction)
         {
             var section = "8." + order + " Scav Heatmap - " + displayName;
             var map = new ScavHeatmapMapSettings { Name = displayName };
@@ -178,8 +199,8 @@ namespace DynamicMaps.Config
                 "Base heat radius (m)",
                 radius,
                 new ConfigDescription(
-                    "Radius of a heat blob at intel level 0, in meters. Bigger = vaguer. Each hideout intel level shrinks it, but never below 50 m.",
-                    new AcceptableValueRange<float>(50f, 400f),
+                    "Radius of a heat blob at intel level 0, in meters. Bigger = vaguer. Each hideout intel level shrinks it, but never below 25 m.",
+                    new AcceptableValueRange<float>(25f, 400f),
                     new ConfigurationManagerAttributes { })));
 
             ConfigEntries.Add(map.Reduction = config.Bind(
@@ -187,17 +208,17 @@ namespace DynamicMaps.Config
                 "Radius reduction per intel level (m)",
                 reduction,
                 new ConfigDescription(
-                    "How much each hideout intel level shrinks the heat radius, so higher intel gives a more precise heatmap. The radius never goes below 50 m.",
+                    "How much each hideout intel level shrinks the heat radius, so higher intel gives a more precise heatmap. The radius never goes below 25 m.",
                     new AcceptableValueRange<float>(0f, 50f),
                     new ConfigurationManagerAttributes { })));
 
-            // defaults to the general merge distance, so an existing setup keeps its look until a map is changed
+            // half the base radius: a pack then still fits inside a blob at the highest intel level, where the radius is smallest
             ConfigEntries.Add(map.MergeDistance = config.Bind(
                 section,
                 "Pack merge distance (m)",
-                mergeDistance ?? ScavHeatmapMergeDistance.Value,
+                radius * 0.5f,
                 new ConfigDescription(
-                    "Scavs on the same floor closer together than this are shown as one blob at their group center. Lower it on small maps so the heatmap doesn't turn into one big blob. 0 = no merging, one blob per scav.",
+                    "Scavs on the same floor closer together than this are shown as one blob at their group center, and the blob grows to cover the pack. Keep it well under the heat radius you get at intel level 3 (base radius minus 3 times the reduction), otherwise packs stay big whatever the intel level. 0 = no merging, one blob per scav.",
                     new AcceptableValueRange<float>(0f, 300f),
                     new ConfigurationManagerAttributes { })));
 
@@ -536,9 +557,9 @@ namespace DynamicMaps.Config
             ConfigEntries.Add(ShowOtherCorpsesInRaid = config.Bind(
                 DynamicMarkerTitle,
                 "Show Other Corpses In Raid",
-                false,
+                true,
                 new ConfigDescription(
-                    "If corpses (other than friendly ones or ones killed by the player) should be shown in raid",
+                    "If corpses (other than friendly ones or ones killed by the player) should be shown in raid. See 'When to show other corpses' in the Corpse Markers section.",
                     null,
                     new ConfigurationManagerAttributes { })));
 
@@ -1004,10 +1025,20 @@ namespace DynamicMaps.Config
             ConfigEntries.Add(ScavHeatmapIntelLevel = config.Bind(
                 ScavHeatmapTitle,
                 "Intel level required to show heatmap",
-                0,
+                1,
                 new ConfigDescription(
                     "If intel level is at or above this value it will show the scav heatmap. 0 shows it at any intel level.",
                     new AcceptableValueRange<int>(0, 3),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapAllFloors = config.Bind(
+                ScavHeatmapTitle,
+                "Show on all floors",
+                true,
+                new ConfigDescription(
+                    "Heat is shown on every floor of the map, and scavs on different floors at the same spot add up to one hotter blob. " +
+                    "Off = only the selected floor shows heat, like scav markers.",
+                    null,
                     new ConfigurationManagerAttributes { })));
 
             ConfigEntries.Add(ScavHeatmapIncludeRogueRaiders = config.Bind(
@@ -1037,19 +1068,10 @@ namespace DynamicMaps.Config
                     new AcceptableValueRange<float>(0f, 150f),
                     new ConfigurationManagerAttributes { })));
 
-            ConfigEntries.Add(ScavHeatmapMergeDistance = config.Bind(
-                ScavHeatmapTitle,
-                "Pack merge distance (m)",
-                100f,
-                new ConfigDescription(
-                    "Scavs on the same floor closer together than this are shown as one blob at their group center, and the blob grows to cover the pack. 0 = no merging, one blob per scav. Maps have their own value in their section; this one is only used for maps without one.",
-                    new AcceptableValueRange<float>(0f, 300f),
-                    new ConfigurationManagerAttributes { })));
-
             ConfigEntries.Add(ScavHeatmapScavsForFullHeat = config.Bind(
                 ScavHeatmapTitle,
                 "Scavs for full heat",
-                3,
+                5,
                 new ConfigDescription(
                     "How many scavs overlapping each other it takes to reach the max opacity. Lower = a single scav is already strongly visible.",
                     new AcceptableValueRange<int>(1, 10),
@@ -1067,7 +1089,7 @@ namespace DynamicMaps.Config
             ConfigEntries.Add(ScavHeatmapFadeSeconds = config.Bind(
                 ScavHeatmapTitle,
                 "Fadeout time (s)",
-                20f,
+                30f,
                 new ConfigDescription(
                     "How long a cell takes to fade from full heat to nothing after the scavs in it die or leave.",
                     new AcceptableValueRange<float>(2f, 300f),
@@ -1076,7 +1098,7 @@ namespace DynamicMaps.Config
             ConfigEntries.Add(ScavHeatmapUpdateSeconds = config.Bind(
                 ScavHeatmapTitle,
                 "Update interval (s)",
-                2f,
+                1f,
                 new ConfigDescription(
                     "How often scav positions are sampled. Lower = tracks scavs more closely. Higher = vaguer and cheaper.",
                     new AcceptableValueRange<float>(0.25f, 30f),
@@ -1085,7 +1107,7 @@ namespace DynamicMaps.Config
             ConfigEntries.Add(ScavHeatmapMaxOpacity = config.Bind(
                 ScavHeatmapTitle,
                 "Max opacity",
-                0.6f,
+                0.8f,
                 new ConfigDescription(
                     "Opacity of a fully hot cell.",
                     new AcceptableValueRange<float>(0.1f, 1f),
@@ -1100,17 +1122,110 @@ namespace DynamicMaps.Config
                     null,
                     new ConfigurationManagerAttributes { })));
 
+            ConfigEntries.Add(LootedCorpseAlpha = config.Bind(
+                CorpseMarkersTitle,
+                "Looted corpse opacity",
+                0.4f,
+                new ConfigDescription(
+                    "Opacity of a corpse marker after you opened that corpse yourself (bots looting don't count). 1 = same as unlooted.",
+                    new AcceptableValueRange<float>(0.1f, 1f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(OnlyShowNearbyCorpses = config.Bind(
+                CorpseMarkersTitle,
+                "Only show corpses that are near",
+                true,
+                new ConfigDescription(
+                    "Corpses killed by you or your group only get a marker once you come within the radius below of them (or open them). " +
+                    "Stops the map from confirming kills. Corpses of your group's own members are always shown. A shown marker stays.",
+                    null,
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(CorpseRevealRadius = config.Bind(
+                CorpseMarkersTitle,
+                "Instant reveal radius (m)",
+                15f,
+                new ConfigDescription(
+                    "Corpses killed by you or your group closer than this to you get their marker. 0 = only the delay (if on) or opening them reveals.",
+                    new AcceptableValueRange<float>(0f, 100f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(CorpseRevealRadiusPerPerceptionLevel = config.Bind(
+                CorpseMarkersTitle,
+                "Radius per Perception level (m)",
+                0.3f,
+                new ConfigDescription(
+                    "Meters added to the instant reveal radius for each level of your Perception skill.",
+                    new AcceptableValueRange<float>(0f, 2f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(CorpseRevealRadiusEliteBonus = config.Bind(
+                CorpseMarkersTitle,
+                "Elite Perception radius bonus (m)",
+                10f,
+                new ConfigDescription(
+                    "Extra meters of instant reveal radius once your Perception skill is elite (above level 50).",
+                    new AcceptableValueRange<float>(0f, 50f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(RevealKilledCorpsesAfterDelay = config.Bind(
+                CorpseMarkersTitle,
+                "Reveal killed corpses after a delay",
+                false,
+                new ConfigDescription(
+                    "Also show corpses killed by you or your group once the delay below has passed since they died, wherever they are. " +
+                    "Only does something while 'Only show corpses that are near' is on. Off by default and then costs nothing: turn it on before a raid starts.",
+                    null,
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(CorpseRevealDelaySeconds = config.Bind(
+                CorpseMarkersTitle,
+                "Reveal delay (s)",
+                60f,
+                new ConfigDescription(
+                    "Seconds after death until a corpse killed by you or your group gets its marker, when the delay is on. Not changed by Perception or intel level.",
+                    new AcceptableValueRange<float>(0f, 600f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(OtherCorpsesReveal = config.Bind(
+                CorpseMarkersTitle,
+                "When to show other corpses",
+                OtherCorpseReveal.Close,
+                new ConfigDescription(
+                    "When a corpse not killed by you or your group (and not your group's own member) gets a marker: Always, once you opened it (Looted), once you are close to it (Close, see the radius below), or either (LootedOrClose). " +
+                    "They still need 'Show Other Corpses In Raid' (and 'Show Boss Corpses In Raid' for bosses). A shown marker stays.",
+                    null,
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(OtherCorpseCloseRadius = config.Bind(
+                CorpseMarkersTitle,
+                "Other corpses radius (m)",
+                3f,
+                new ConfigDescription(
+                    "How close you must be for an other corpse to show up, when 'When to show other corpses' includes Close.",
+                    new AcceptableValueRange<float>(0f, 15f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(EliteOtherCorpseRadius = config.Bind(
+                CorpseMarkersTitle,
+                "Other corpses radius at elite Perception (m)",
+                10f,
+                new ConfigDescription(
+                    "The other corpses radius once your Perception skill is elite (above level 50). Never smaller than the normal radius.",
+                    new AcceptableValueRange<float>(0f, 25f),
+                    new ConfigurationManagerAttributes { })));
+
             // per-map heatmap settings; big open maps get big blobs, small maps get small ones (or are off)
-            BindScavHeatmapMap(config, "01", "Customs", new[] { "bigmap" }, true, 150f, 20f);
-            BindScavHeatmapMap(config, "02", "Factory", new[] { "factory4_day", "factory4_night" }, false, 60f, 10f, 25f);
+            BindScavHeatmapMap(config, "01", "Customs", new[] { "bigmap" }, true, 150f, 15f);
+            BindScavHeatmapMap(config, "02", "Factory", new[] { "factory4_day", "factory4_night" }, false, 40f, 5f);
             BindScavHeatmapMap(config, "03", "Ground Zero", new[] { "sandbox", "sandbox_high" }, true, 100f, 10f);
-            BindScavHeatmapMap(config, "04", "Interchange", new[] { "interchange" }, true, 150f, 20f);
-            BindScavHeatmapMap(config, "05", "Labs", new[] { "laboratory" }, false, 80f, 10f, 40f);
-            BindScavHeatmapMap(config, "06", "Labyrinth", new[] { "labyrinth" }, false, 80f, 10f, 40f);
-            BindScavHeatmapMap(config, "07", "Lighthouse", new[] { "lighthouse" }, true, 200f, 25f);
-            BindScavHeatmapMap(config, "08", "Reserve", new[] { "rezervbase" }, true, 120f, 15f);
+            BindScavHeatmapMap(config, "04", "Interchange", new[] { "interchange" }, true, 150f, 15f);
+            BindScavHeatmapMap(config, "05", "Labs", new[] { "laboratory" }, false, 40f, 5f);
+            BindScavHeatmapMap(config, "06", "Labyrinth", new[] { "labyrinth" }, false, 40f, 5f);
+            BindScavHeatmapMap(config, "07", "Lighthouse", new[] { "lighthouse" }, true, 250f, 30f);
+            BindScavHeatmapMap(config, "08", "Reserve", new[] { "rezervbase" }, true, 150f, 15f);
             BindScavHeatmapMap(config, "09", "Shoreline", new[] { "shoreline" }, true, 250f, 30f);
-            BindScavHeatmapMap(config, "10", "Streets", new[] { "tarkovstreets" }, true, 150f, 20f);
+            BindScavHeatmapMap(config, "10", "Streets", new[] { "tarkovstreets" }, true, 200f, 20f);
             BindScavHeatmapMap(config, "11", "Woods", new[] { "woods" }, true, 250f, 30f);
 
             ConfigEntries.Add(ShowHeliCrashMarker = config.Bind(

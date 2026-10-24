@@ -47,7 +47,7 @@ namespace DynamicMaps.DynamicMarkers
         private const float _minHeatChange = 0f;     // smaller heat changes are not redrawn
 
         private const float _glideSpeed = 4f;        // how quickly a blob glides to a newly sampled position
-        private const float _minRadius = 50f;        // the radius never goes below this, whatever the intel level
+        private const float _minRadius = 25f;        // the radius never goes below this, whatever the intel level
         private float _mergeDistance;                // the current map's pack merge distance
         private const float _extentPadding = 25f;    // a merged blob covers its scavs' spread plus this much
         private const float _maxOffsetOfRadius = 0.5f;  // the offset never moves the blob more than this part of its radius
@@ -150,7 +150,8 @@ namespace DynamicMaps.DynamicMarkers
                                + Settings.ScavHeatmapScavsForFullHeat.Value * 3.1f
                                + Settings.ScavHeatmapColor.Value.r * 7.3f
                                + Settings.ScavHeatmapColor.Value.g * 11.7f
-                               + Settings.ScavHeatmapColor.Value.b * 13.1f;
+                               + Settings.ScavHeatmapColor.Value.b * 13.1f
+                               + (Settings.ScavHeatmapAllFloors.Value ? 17.9f : 0f);
             var forceRedraw = !Mathf.Approximately(settingsHash, _lastSettingsHash);
             _lastSettingsHash = settingsHash;
 
@@ -216,7 +217,7 @@ namespace DynamicMaps.DynamicMarkers
                            && intelLevel >= Settings.ScavHeatmapIntelLevel.Value
                            && (mapSettings == null || mapSettings.Enabled.Value);
 
-            _mergeDistance = mapSettings != null ? mapSettings.MergeDistance.Value : Settings.ScavHeatmapMergeDistance.Value;
+            _mergeDistance = mapSettings != null ? mapSettings.MergeDistance.Value : 75f;  // unknown map: half the fallback radius
 
             if (canTrack)
             {
@@ -239,7 +240,9 @@ namespace DynamicMaps.DynamicMarkers
                     }
 
                     var mapPosition = MathUtils.ConvertToMapPosition(player.Position);  // x, y = ground plane, z = height
-                    _scavs.Add((mapPosition, _map.GetLevelAt(mapPosition) ?? int.MinValue));
+                    // flat map: one shared "floor" so scavs above and below each other merge and no floor hides the heat
+                    var level = Settings.ScavHeatmapAllFloors.Value ? 0 : _map.GetLevelAt(mapPosition) ?? int.MinValue;
+                    _scavs.Add((mapPosition, level));
                 }
 
                 BuildClusters();

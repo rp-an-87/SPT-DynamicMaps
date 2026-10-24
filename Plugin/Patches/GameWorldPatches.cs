@@ -53,6 +53,8 @@ namespace DynamicMaps.Patches
             {
                 OnRaidEnd?.Invoke();
                 GameStartedPatch.HiddenStashes.Clear();
+                PlayerOnDeadPatch.DeathTimes.Clear();
+                PlayerInteractCorpsePatch.LootedProfileIds.Clear();
             }
             catch(Exception e)
             {

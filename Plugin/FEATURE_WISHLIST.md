@@ -52,3 +52,9 @@
   - Only show player position if compass equipped
   - Only reveal locked doors that the character has interacted with
   - Only allow map usage if player has map equipped
+
+### Corpse reveal circle (idea, not built)
+
+- With the reveal delay on, instead of pointing at the corpse after the delay, draw a plain translucent circle (not a heatmap) around it
+- The circle's center is a random point within the reveal radius, so it only says roughly where bodies are, like the scav heatmap blobs
+- Several nearby bodies could share one circle
