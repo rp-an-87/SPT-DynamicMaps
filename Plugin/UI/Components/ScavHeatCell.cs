@@ -38,6 +38,9 @@ namespace DynamicMaps.UI.Components
         /// <summary>Map level (floor) this blob is on.</summary>
         public int Level { get; set; }
 
+        /// <summary>Heat is shown on every floor (set by the provider from the map's settings).</summary>
+        public bool Flat { get; set; }
+
         /// <summary>Real, un-fuzzed center of the tracked scav(s).</summary>
         public Vector3 Centroid { get; set; }
 
@@ -101,7 +104,7 @@ namespace DynamicMaps.UI.Components
             var weightedOpacity = 1f - Mathf.Pow(1f - GetPerScavOpacity(), Mathf.Max(0.01f, DisplayWeight));
 
             // only the selected floor shows heat, like scav markers, unless the heatmap is flat
-            var levelAlpha = Settings.ScavHeatmapAllFloors.Value || _status == LayerStatus.OnTop || _status == LayerStatus.FullReveal ? 1f : 0f;
+            var levelAlpha = Flat || _status == LayerStatus.OnTop || _status == LayerStatus.FullReveal ? 1f : 0f;
 
             var color = Color.Lerp(_coolColor, Settings.ScavHeatmapColor.Value, heat);
             color.a = heat * weightedOpacity * levelAlpha;

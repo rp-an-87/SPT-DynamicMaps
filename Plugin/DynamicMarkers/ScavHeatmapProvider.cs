@@ -49,6 +49,7 @@ namespace DynamicMaps.DynamicMarkers
         private const float _glideSpeed = 4f;        // how quickly a blob glides to a newly sampled position
         private const float _minRadius = 25f;        // the radius never goes below this, whatever the intel level
         private float _mergeDistance;                // the current map's pack merge distance
+        private bool _flat;                          // the current map shows heat on every floor, stacked
         private const float _extentPadding = 25f;    // a merged blob covers its scavs' spread plus this much
         private const float _maxOffsetOfRadius = 0.5f;  // the offset never moves the blob more than this part of its radius
 
@@ -151,7 +152,7 @@ namespace DynamicMaps.DynamicMarkers
                                + Settings.ScavHeatmapColor.Value.r * 7.3f
                                + Settings.ScavHeatmapColor.Value.g * 11.7f
                                + Settings.ScavHeatmapColor.Value.b * 13.1f
-                               + (Settings.ScavHeatmapAllFloors.Value ? 17.9f : 0f);
+                               + (_flat ? 17.9f : 0f);
             var forceRedraw = !Mathf.Approximately(settingsHash, _lastSettingsHash);
             _lastSettingsHash = settingsHash;
 
@@ -217,6 +218,7 @@ namespace DynamicMaps.DynamicMarkers
                            && intelLevel >= Settings.ScavHeatmapIntelLevel.Value
                            && (mapSettings == null || mapSettings.Enabled.Value);
 
+            _flat = Settings.IsScavHeatmapFlat(mapSettings);
             _mergeDistance = mapSettings != null ? mapSettings.MergeDistance.Value : 75f;  // unknown map: half the fallback radius
 
             if (canTrack)
@@ -241,7 +243,7 @@ namespace DynamicMaps.DynamicMarkers
 
                     var mapPosition = MathUtils.ConvertToMapPosition(player.Position);  // x, y = ground plane, z = height
                     // flat map: one shared "floor" so scavs above and below each other merge and no floor hides the heat
-                    var level = Settings.ScavHeatmapAllFloors.Value ? 0 : _map.GetLevelAt(mapPosition) ?? int.MinValue;
+                    var level = _flat ? 0 : _map.GetLevelAt(mapPosition) ?? int.MinValue;
                     _scavs.Add((mapPosition, level));
                 }
 
@@ -363,6 +365,7 @@ namespace DynamicMaps.DynamicMarkers
                 var blob = ScavHeatCell.Create(_map.MapMarkerContainer, cluster.Centroid, radius);
                 blob.Offset = CreateStableOffset();
                 blob.Level = cluster.Level;
+                blob.Flat = _flat;
                 blob.Weight = cluster.Members.Count;
                 blob.DisplayWeight = blob.Weight;
                 _blobs.Add(blob);
@@ -399,6 +402,7 @@ namespace DynamicMaps.DynamicMarkers
             blob.Target = 1f;
             blob.Centroid = centroid;
             blob.Level = cluster.Level;
+            blob.Flat = _flat;
             blob.Weight = cluster.Members.Count;
             blob.TargetPosition = centroid + new Vector3(offset.x, offset.y, 0f);
             _map.RefreshLayerBound(blob);  // the scavs may have changed floor

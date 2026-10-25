@@ -175,12 +175,19 @@ namespace DynamicMaps.Config
             public ConfigEntry<float> Radius;
             public ConfigEntry<float> Reduction;
             public ConfigEntry<float> MergeDistance;
+            public ConfigEntry<bool> PerFloor;
         }
 
         public static readonly Dictionary<string, ScavHeatmapMapSettings> ScavHeatmapMaps = new Dictionary<string, ScavHeatmapMapSettings>();
 
+        /// <summary>Whether the heat is flat (every floor, stacked) on a map: 'Show on all floors' unless the map is set to per-floor.</summary>
+        public static bool IsScavHeatmapFlat(ScavHeatmapMapSettings mapSettings)
+        {
+            return ScavHeatmapAllFloors.Value && !(mapSettings?.PerFloor?.Value ?? false);
+        }
+
         private static void BindScavHeatmapMap(ConfigFile config, string order, string displayName, string[] locationIds,
-                                               bool enabled, float radius, float reduction)
+                                               bool enabled, float radius, float reduction, bool perFloor = false)
         {
             var section = "8." + order + " Scav Heatmap - " + displayName;
             var map = new ScavHeatmapMapSettings { Name = displayName };
@@ -220,6 +227,15 @@ namespace DynamicMaps.Config
                 new ConfigDescription(
                     "Scavs on the same floor closer together than this are shown as one blob at their group center, and the blob grows to cover the pack. Keep it well under the heat radius you get at intel level 3 (base radius minus 3 times the reduction), otherwise packs stay big whatever the intel level. 0 = no merging, one blob per scav.",
                     new AcceptableValueRange<float>(0f, 300f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(map.PerFloor = config.Bind(
+                section,
+                "Per-floor heat",
+                perFloor,
+                new ConfigDescription(
+                    "Only the selected floor of " + displayName + " shows heat, like scav markers, and scavs on different floors never add up. Meant for maps whose floors overlap on the map screen. Overrides 'Show on all floors' for this map.",
+                    null,
                     new ConfigurationManagerAttributes { })));
 
             foreach (var id in locationIds)
@@ -1219,8 +1235,8 @@ namespace DynamicMaps.Config
             BindScavHeatmapMap(config, "01", "Customs", new[] { "bigmap" }, true, 150f, 15f);
             BindScavHeatmapMap(config, "02", "Factory", new[] { "factory4_day", "factory4_night" }, false, 40f, 5f);
             BindScavHeatmapMap(config, "03", "Ground Zero", new[] { "sandbox", "sandbox_high" }, true, 100f, 10f);
-            BindScavHeatmapMap(config, "04", "Interchange", new[] { "interchange" }, true, 150f, 15f);
-            BindScavHeatmapMap(config, "05", "Labs", new[] { "laboratory" }, false, 40f, 5f);
+            BindScavHeatmapMap(config, "04", "Interchange", new[] { "interchange" }, true, 150f, 15f, true);
+            BindScavHeatmapMap(config, "05", "Labs", new[] { "laboratory" }, false, 40f, 5f, true);
             BindScavHeatmapMap(config, "06", "Labyrinth", new[] { "labyrinth" }, false, 40f, 5f);
             BindScavHeatmapMap(config, "07", "Lighthouse", new[] { "lighthouse" }, true, 250f, 30f);
             BindScavHeatmapMap(config, "08", "Reserve", new[] { "rezervbase" }, true, 150f, 15f);

@@ -15,7 +15,7 @@ Branch `scav-heatmap` adds an optional **scav heatmap** overlay in-raid, instead
 - Blob radius shrinks with the hideout Intelligence Center level, never below 25 m.
 - Per-map settings (enabled, base radius, radius reduction per intel level, pack merge distance) in their own F12 sections.
 - Optional inclusion of Rogues and Raiders from a configurable intel level.
-- Heat fades out after scavs die or leave. By default it is flat: shown on every floor, and scavs on different floors merge into one blob ("Show on all floors"). With that off, per-floor visibility follows the map layers, like markers.
+- Heat fades out after scavs die or leave. By default it is flat: shown on every floor, and scavs on different floors merge into one blob ("Show on all floors"). With that off, per-floor visibility follows the map layers, like markers. Each map also has a "Per-floor heat" setting that does the same for that map alone (on by default for Interchange and Labs, whose floors overlap).
 - Respects the server's existing "allow scav markers" permission.
 
 Corpse markers (section "9. Corpse Markers"):
