@@ -1061,7 +1061,7 @@ namespace DynamicMaps.Config
             ConfigEntries.Add(QuestZoneAreaOpacity = config.Bind(
                 MarkerColors,
                 "Quest zone outline opacity",
-                0.5f,
+                0.6f,
                 new ConfigDescription(
                     "Opacity of the quest zone outlines.",
                     new AcceptableValueRange<float>(0.05f, 1f),
@@ -1070,7 +1070,7 @@ namespace DynamicMaps.Config
             ConfigEntries.Add(QuestZoneAreaFillOpacity = config.Bind(
                 MarkerColors,
                 "Quest zone fill opacity",
-                0.12f,
+                0.2f,
                 new ConfigDescription(
                     "Opacity of the faint fill inside the quest zone outlines. 0 for outline only.",
                     new AcceptableValueRange<float>(0f, 1f),
