@@ -23,6 +23,8 @@ Corpse markers (section "9. Corpse Markers"):
 - Corpses you opened yourself (bots looting don't count) fade to a configurable opacity, bosses included.
 - Corpses killed by you or your group only show once you are within a radius of them (grows with Perception level, bonus at elite) or once you opened them. Other corpses show by a chosen rule: always, once you opened them, once you are very close (3 m by default, 10 m at elite Perception), or either (default: close). Group members' corpses always show. A shown marker stays. Optionally also reveal your kills a configurable time after death (off by default, no background work while off). Both radii show as extra rows in the Perception skill tooltip.
 
+Branch `quest-zones` (on top of `scav-heatmap`) draws quest zone objectives as a thin solid outline with a faint fill of the zone's real shape (box colliders as rotated rectangles, sphere colliders as circles; F12 toggle, outline and fill opacity, color and line thickness in "2. Dynamic Markers"). Code: `QuestZoneRing.cs` (new), additions to `QuestUtils.cs`, `QuestMarkerProvider.cs` and `Settings.cs`.
+
 Code changes: `Plugin/DynamicMarkers/ScavHeatmapProvider.cs` and `Plugin/UI/Components/ScavHeatCell.cs` (new), changes to `CorpseMarkerProvider.cs`, `MapMarker.cs`, `PlayerPatches.cs` and `PerceptionSkillUiPatches.cs` (new), small
 additions to `MapView.cs`, `Settings.cs` and `ModdedMapScreen.cs`, and a build change that only deploys the plugin DLL.
 

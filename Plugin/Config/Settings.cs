@@ -51,6 +51,11 @@ namespace DynamicMaps.Config
         public static ConfigEntry<bool> ShowBossMarkersInRaid;
         public static ConfigEntry<bool> ShowLockedDoorStatus;
         public static ConfigEntry<bool> ShowQuestsInRaid;
+        public static ConfigEntry<bool> ShowQuestZoneAreas;
+        public static ConfigEntry<float> QuestZoneAreaOpacity;
+        public static ConfigEntry<float> QuestZoneAreaLineThickness;
+        public static ConfigEntry<float> QuestZoneAreaFillOpacity;
+        public static ConfigEntry<Color> QuestZoneAreaColor;
         public static ConfigEntry<bool> ShowExtractsInRaid;
         public static ConfigEntry<bool> ShowExtractStatusInRaid;
         public static ConfigEntry<bool> ShowTransitPointsInRaid;
@@ -450,6 +455,51 @@ namespace DynamicMaps.Config
                 true,
                 new ConfigDescription(
                     "If quests should be shown in raid",
+                    null,
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ShowQuestZoneAreas = config.Bind(
+                DynamicMarkerTitle,
+                "Show Quest Zone Areas",
+                true,
+                new ConfigDescription(
+                    "Draws the area of quest objectives that are zones (visit, plant, launch flare, stay in zone) as a thin outline of their real shape (box zones as a rectangle, sphere zones as a circle). Needs 'Show Quests In Raid'.",
+                    null,
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(QuestZoneAreaOpacity = config.Bind(
+                DynamicMarkerTitle,
+                "Quest Zone Area Opacity",
+                0.5f,
+                new ConfigDescription(
+                    "Opacity of the quest zone outlines.",
+                    new AcceptableValueRange<float>(0.05f, 1f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(QuestZoneAreaFillOpacity = config.Bind(
+                DynamicMarkerTitle,
+                "Quest Zone Fill Opacity",
+                0.12f,
+                new ConfigDescription(
+                    "Opacity of the faint fill inside the quest zone outlines. 0 for outline only.",
+                    new AcceptableValueRange<float>(0f, 1f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(QuestZoneAreaLineThickness = config.Bind(
+                DynamicMarkerTitle,
+                "Quest Zone Line Thickness",
+                2f,
+                new ConfigDescription(
+                    "Thickness of the quest zone outline in screen pixels (stays the same while zooming).",
+                    new AcceptableValueRange<float>(0.5f, 8f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(QuestZoneAreaColor = config.Bind(
+                DynamicMarkerTitle,
+                "Quest Zone Area Color",
+                Color.green,
+                new ConfigDescription(
+                    "Color of the quest zone outlines (its alpha is ignored, use the opacity setting).",
                     null,
                     new ConfigurationManagerAttributes { })));
 

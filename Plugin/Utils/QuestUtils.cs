@@ -42,6 +42,15 @@ namespace DynamicMaps.Utils
         public static List<TriggerWithId> TriggersWithIds;
         public static List<LootItem> QuestItems;
 
+        /// <summary>Zone areas (map position and outline in meters) found by the last <see cref="GetMarkerDefsForPlayer"/>.</summary>
+        public static readonly List<QuestZoneArea> ZoneAreas = new List<QuestZoneArea>();
+
+        public struct QuestZoneArea
+        {
+            public Vector3 Position;
+            public Vector2[] Outline;  // closed loop relative to Position, map meters
+        }
+
         internal static void TryCaptureQuestData()
         {
             var gameWorld = Singleton<GameWorld>.Instance;
@@ -85,6 +94,7 @@ namespace DynamicMaps.Utils
             }
 
             var markers = new List<MapMarkerDef>();
+            ZoneAreas.Clear();
 
             var quests = GetIncompleteQuests(player);
             foreach (var quest in quests)
@@ -229,7 +239,101 @@ namespace DynamicMaps.Utils
             var zones = TriggersWithIds?.GetZoneTriggers(zoneId);
             foreach (var zone in zones)
             {
+                TryAddZoneArea(zone);
                 yield return MathUtils.ConvertToMapPosition(zone.transform.position);
+            }
+        }
+
+        /// <summary>
+        /// Records the horizontal outline of each collider of a zone trigger: box colliders as their real (rotated)
+        /// rectangle, sphere colliders as a circle, anything else as its bounding rectangle.
+        /// </summary>
+        private static void TryAddZoneArea(TriggerWithId zone)
+        {
+            foreach (var collider in zone.GetComponentsInChildren<Collider>())
+            {
+                if (collider == null)
+                {
+                    continue;
+                }
+
+                var worldPoints = GetOutlineWorldPoints(collider);
+                if (worldPoints == null)
+                {
+                    continue;
+                }
+
+                var mapPoints = worldPoints.Select(p => (Vector2)MathUtils.ConvertToMapPosition(p)).ToArray();
+                var center = Vector2.zero;
+                foreach (var point in mapPoints)
+                {
+                    center += point;
+                }
+                center /= mapPoints.Length;
+
+                var outline = mapPoints.Select(p => p - center).ToArray();
+                var position = new Vector3(center.x, center.y, collider.bounds.center.y);
+
+                var isDuplicate = false;
+                foreach (var existing in ZoneAreas)
+                {
+                    if (Vector2.Distance(existing.Position, position) < 0.5f && existing.Outline.Length == outline.Length
+                     && Vector2.Distance(existing.Outline[0], outline[0]) < 0.5f)
+                    {
+                        isDuplicate = true;
+                        break;
+                    }
+                }
+
+                if (!isDuplicate)
+                {
+                    ZoneAreas.Add(new QuestZoneArea { Position = position, Outline = outline });
+                }
+            }
+        }
+
+        private static Vector3[] GetOutlineWorldPoints(Collider collider)
+        {
+            switch (collider)
+            {
+                case BoxCollider box:
+                {
+                    var half = box.size / 2f;
+                    var corners = new[] { new Vector2(-1, -1), new Vector2(1, -1), new Vector2(1, 1), new Vector2(-1, 1) };
+                    return corners
+                        .Select(c => box.transform.TransformPoint(box.center + new Vector3(c.x * half.x, 0f, c.y * half.z)))
+                        .ToArray();
+                }
+                case SphereCollider sphere:
+                {
+                    var scale = sphere.transform.lossyScale;
+                    var radius = sphere.radius * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+                    var center = sphere.transform.TransformPoint(sphere.center);
+                    const int segments = 64;
+                    var points = new Vector3[segments];
+                    for (var i = 0; i < segments; i++)
+                    {
+                        var angle = i * 2f * Mathf.PI / segments;
+                        points[i] = center + new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
+                    }
+                    return points;
+                }
+                default:
+                {
+                    var bounds = collider.bounds;
+                    if (bounds.size == Vector3.zero)
+                    {
+                        return null;
+                    }
+
+                    var min = bounds.min;
+                    var max = bounds.max;
+                    return new[]
+                    {
+                        new Vector3(min.x, bounds.center.y, min.z), new Vector3(max.x, bounds.center.y, min.z),
+                        new Vector3(max.x, bounds.center.y, max.z), new Vector3(min.x, bounds.center.y, max.z)
+                    };
+                }
             }
         }
 
