@@ -141,6 +141,7 @@ namespace DynamicMaps.Config
         public static ConfigEntry<Color> TransPointColor;
         public static ConfigEntry<Color> SecretPointColor;
         public static ConfigEntry<Color> HiddenStashColor;
+        public static ConfigEntry<Color> QuestMarkerColor;
         
         #endregion
         
@@ -204,7 +205,7 @@ namespace DynamicMaps.Config
                 new ConfigDescription(
                     "Show the scav heatmap on " + displayName + ".",
                     null,
-                    new ConfigurationManagerAttributes { })));
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
 
             ConfigEntries.Add(map.Radius = config.Bind(
                 section,
@@ -213,7 +214,7 @@ namespace DynamicMaps.Config
                 new ConfigDescription(
                     "Radius of a heat blob at intel level 0, in meters. Bigger = vaguer. Each hideout intel level shrinks it, but never below 25 m.",
                     new AcceptableValueRange<float>(25f, 400f),
-                    new ConfigurationManagerAttributes { })));
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
 
             ConfigEntries.Add(map.Reduction = config.Bind(
                 section,
@@ -222,7 +223,7 @@ namespace DynamicMaps.Config
                 new ConfigDescription(
                     "How much each hideout intel level shrinks the heat radius, so higher intel gives a more precise heatmap. The radius never goes below 25 m.",
                     new AcceptableValueRange<float>(0f, 50f),
-                    new ConfigurationManagerAttributes { })));
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
 
             // half the base radius: a pack then still fits inside a blob at the highest intel level, where the radius is smallest
             ConfigEntries.Add(map.MergeDistance = config.Bind(
@@ -232,7 +233,7 @@ namespace DynamicMaps.Config
                 new ConfigDescription(
                     "Scavs on the same floor closer together than this are shown as one blob at their group center, and the blob grows to cover the pack. Keep it well under the heat radius you get at intel level 3 (base radius minus 3 times the reduction), otherwise packs stay big whatever the intel level. 0 = no merging, one blob per scav.",
                     new AcceptableValueRange<float>(0f, 300f),
-                    new ConfigurationManagerAttributes { })));
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
 
             ConfigEntries.Add(map.PerFloor = config.Bind(
                 section,
@@ -241,7 +242,7 @@ namespace DynamicMaps.Config
                 new ConfigDescription(
                     "Only the selected floor of " + displayName + " shows heat, like scav markers, and scavs on different floors never add up. Meant for maps whose floors overlap on the map screen. Overrides 'Show on all floors' for this map.",
                     null,
-                    new ConfigurationManagerAttributes { })));
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
 
             foreach (var id in locationIds)
             {
@@ -464,42 +465,6 @@ namespace DynamicMaps.Config
                 true,
                 new ConfigDescription(
                     "Draws the area of quest objectives that are zones (visit, plant, launch flare, stay in zone) as a thin outline of their real shape (box zones as a rectangle, sphere zones as a circle). Needs 'Show Quests In Raid'.",
-                    null,
-                    new ConfigurationManagerAttributes { })));
-
-            ConfigEntries.Add(QuestZoneAreaOpacity = config.Bind(
-                DynamicMarkerTitle,
-                "Quest Zone Area Opacity",
-                0.5f,
-                new ConfigDescription(
-                    "Opacity of the quest zone outlines.",
-                    new AcceptableValueRange<float>(0.05f, 1f),
-                    new ConfigurationManagerAttributes { })));
-
-            ConfigEntries.Add(QuestZoneAreaFillOpacity = config.Bind(
-                DynamicMarkerTitle,
-                "Quest Zone Fill Opacity",
-                0.12f,
-                new ConfigDescription(
-                    "Opacity of the faint fill inside the quest zone outlines. 0 for outline only.",
-                    new AcceptableValueRange<float>(0f, 1f),
-                    new ConfigurationManagerAttributes { })));
-
-            ConfigEntries.Add(QuestZoneAreaLineThickness = config.Bind(
-                DynamicMarkerTitle,
-                "Quest Zone Line Thickness",
-                2f,
-                new ConfigDescription(
-                    "Thickness of the quest zone outline in screen pixels (stays the same while zooming).",
-                    new AcceptableValueRange<float>(0.5f, 8f),
-                    new ConfigurationManagerAttributes { })));
-
-            ConfigEntries.Add(QuestZoneAreaColor = config.Bind(
-                DynamicMarkerTitle,
-                "Quest Zone Area Color",
-                Color.green,
-                new ConfigDescription(
-                    "Color of the quest zone outlines (its alpha is ignored, use the opacity setting).",
                     null,
                     new ConfigurationManagerAttributes { })));
 
@@ -1074,7 +1039,52 @@ namespace DynamicMaps.Config
                     "Color of the marker",
                     null,
                     new ConfigurationManagerAttributes { })));
-            
+
+            ConfigEntries.Add(QuestMarkerColor = config.Bind(
+                MarkerColors,
+                "Quest marker color",
+                Color.green,
+                new ConfigDescription(
+                    "Color of the quest objective markers",
+                    null,
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(QuestZoneAreaColor = config.Bind(
+                MarkerColors,
+                "Quest zone area color",
+                Color.green,
+                new ConfigDescription(
+                    "Color of the quest zone outline and fill (its alpha is ignored, use the opacity settings). Independent of the quest marker color.",
+                    null,
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(QuestZoneAreaOpacity = config.Bind(
+                MarkerColors,
+                "Quest zone outline opacity",
+                0.5f,
+                new ConfigDescription(
+                    "Opacity of the quest zone outlines.",
+                    new AcceptableValueRange<float>(0.05f, 1f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(QuestZoneAreaFillOpacity = config.Bind(
+                MarkerColors,
+                "Quest zone fill opacity",
+                0.12f,
+                new ConfigDescription(
+                    "Opacity of the faint fill inside the quest zone outlines. 0 for outline only.",
+                    new AcceptableValueRange<float>(0f, 1f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(QuestZoneAreaLineThickness = config.Bind(
+                MarkerColors,
+                "Quest zone line thickness",
+                2f,
+                new ConfigDescription(
+                    "Thickness of the quest zone outline in screen pixels (stays the same while zooming).",
+                    new AcceptableValueRange<float>(0.5f, 8f),
+                    new ConfigurationManagerAttributes { })));
+
             #endregion
             
             #region ExternalModSupport
@@ -1188,6 +1198,19 @@ namespace DynamicMaps.Config
                     null,
                     new ConfigurationManagerAttributes { })));
 
+            // per-map heatmap settings; big open maps get big blobs, small maps get small ones (or are off)
+            BindScavHeatmapMap(config, "01", "Customs", new[] { "bigmap" }, true, 150f, 15f);
+            BindScavHeatmapMap(config, "02", "Factory", new[] { "factory4_day", "factory4_night" }, false, 40f, 5f);
+            BindScavHeatmapMap(config, "03", "Ground Zero", new[] { "sandbox", "sandbox_high" }, true, 100f, 10f);
+            BindScavHeatmapMap(config, "04", "Interchange", new[] { "interchange" }, true, 150f, 15f, true);
+            BindScavHeatmapMap(config, "05", "Labs", new[] { "laboratory" }, false, 40f, 5f, true);
+            BindScavHeatmapMap(config, "06", "Labyrinth", new[] { "labyrinth" }, false, 40f, 5f);
+            BindScavHeatmapMap(config, "07", "Lighthouse", new[] { "lighthouse" }, true, 250f, 30f);
+            BindScavHeatmapMap(config, "08", "Reserve", new[] { "rezervbase" }, true, 150f, 15f);
+            BindScavHeatmapMap(config, "09", "Shoreline", new[] { "shoreline" }, true, 250f, 30f);
+            BindScavHeatmapMap(config, "10", "Streets", new[] { "tarkovstreets" }, true, 200f, 20f);
+            BindScavHeatmapMap(config, "11", "Woods", new[] { "woods" }, true, 250f, 30f);
+
             ConfigEntries.Add(LootedCorpseAlpha = config.Bind(
                 CorpseMarkersTitle,
                 "Looted corpse opacity",
@@ -1280,19 +1303,6 @@ namespace DynamicMaps.Config
                     "The other corpses radius once your Perception skill is elite (above level 50). Never smaller than the normal radius.",
                     new AcceptableValueRange<float>(0f, 25f),
                     new ConfigurationManagerAttributes { })));
-
-            // per-map heatmap settings; big open maps get big blobs, small maps get small ones (or are off)
-            BindScavHeatmapMap(config, "01", "Customs", new[] { "bigmap" }, true, 150f, 15f);
-            BindScavHeatmapMap(config, "02", "Factory", new[] { "factory4_day", "factory4_night" }, false, 40f, 5f);
-            BindScavHeatmapMap(config, "03", "Ground Zero", new[] { "sandbox", "sandbox_high" }, true, 100f, 10f);
-            BindScavHeatmapMap(config, "04", "Interchange", new[] { "interchange" }, true, 150f, 15f, true);
-            BindScavHeatmapMap(config, "05", "Labs", new[] { "laboratory" }, false, 40f, 5f, true);
-            BindScavHeatmapMap(config, "06", "Labyrinth", new[] { "labyrinth" }, false, 40f, 5f);
-            BindScavHeatmapMap(config, "07", "Lighthouse", new[] { "lighthouse" }, true, 250f, 30f);
-            BindScavHeatmapMap(config, "08", "Reserve", new[] { "rezervbase" }, true, 150f, 15f);
-            BindScavHeatmapMap(config, "09", "Shoreline", new[] { "shoreline" }, true, 250f, 30f);
-            BindScavHeatmapMap(config, "10", "Streets", new[] { "tarkovstreets" }, true, 200f, 20f);
-            BindScavHeatmapMap(config, "11", "Woods", new[] { "woods" }, true, 250f, 30f);
 
             ConfigEntries.Add(ShowHeliCrashMarker = config.Bind(
                 ExternModSupport,

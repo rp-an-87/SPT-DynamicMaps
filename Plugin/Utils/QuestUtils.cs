@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Comfort.Common;
+using DynamicMaps.Config;
 using DynamicMaps.Data;
 using EFT;
 using EFT.Interactive;
@@ -36,7 +37,6 @@ namespace DynamicMaps.Utils
         private const string _questCategory = "Quest";
         private const string _questImagePath = "Markers/quest.png";
         private static Vector2 _questPivot = new Vector2(0.5f, 0f);
-        private static Color _questColor = Color.green;
         //
 
         public static List<TriggerWithId> TriggersWithIds;
@@ -463,7 +463,7 @@ namespace DynamicMaps.Utils
             return new MapMarkerDef
             {
                 Category = _questCategory,
-                Color = _questColor,
+                Color = Settings.QuestMarkerColor.Value,
                 ImagePath = _questImagePath,
                 Position = position,
                 Pivot = _questPivot,
