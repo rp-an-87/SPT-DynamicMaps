@@ -23,10 +23,10 @@ namespace DynamicMaps.UI.Components
         public float Target { get; set; }
         public float Heat { get; set; }
 
-        /// <summary>How many scavs this blob stands for (a pack merged into one blob counts more than a lone scav).</summary>
-        public int Weight { get; set; } = 1;
+        /// <summary>How many scavs this blob stands for (a pack counts more than a lone scav; a ghost counts its remaining strength).</summary>
+        public float Weight { get; set; } = 1f;
 
-        /// <summary>Weight as drawn; moves towards <see cref="Weight"/> over time so a scav dying in a pack fades instead of popping.</summary>
+        /// <summary>Weight as drawn; smoothed towards <see cref="Weight"/> so the steps between samples don't show.</summary>
         public float DisplayWeight { get; set; } = 1f;
 
         /// <summary>What was last drawn; used to skip redraws (every redraw rebuilds the UI canvas).</summary>
@@ -34,6 +34,9 @@ namespace DynamicMaps.UI.Components
         public float AppliedWeight { get; private set; } = -1f;
 
         public float Radius { get; private set; }
+
+        /// <summary>Radius the blob glides to, so size changes (pack changes, ghosts expiring) don't pop.</summary>
+        public float TargetRadius { get; set; }
 
         /// <summary>Map level (floor) this blob is on.</summary>
         public int Level { get; set; }
@@ -74,6 +77,7 @@ namespace DynamicMaps.UI.Components
             cell.Image.color = Color.clear;
 
             cell.SetRadius(radiusMeters);
+            cell.TargetRadius = radiusMeters;
             cell.Position = position;
             cell.TargetPosition = position;
             cell.Centroid = position;

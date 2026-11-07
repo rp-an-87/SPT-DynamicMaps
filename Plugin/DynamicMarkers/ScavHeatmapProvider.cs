@@ -14,9 +14,10 @@ namespace DynamicMaps.DynamicMarkers
     ///
     /// Scavs close to each other (same floor, within the merge distance) are merged into one blob at their group center.
     /// Each blob is shifted by a stable random offset, so the brightest spot doesn't point at a scav, and the blob radius
-    /// shrinks with your hideout intel level (never below a minimum). Blobs fade in when scavs first show up, glide as they
-    /// move, and when the scavs die or leave they stay where they were and fade out, so killing a scav doesn't make the
-    /// heat vanish instantly. Overlapping blobs stack into hotter areas. Per-floor visibility follows the map layers.
+    /// shrinks with your hideout intel level (never below a minimum). Blobs glide as the scavs move. A scav that dies or
+    /// leaves range becomes a stationary ghost at its last position: it keeps counting at full strength for a (jittered)
+    /// hold time, then falls to nothing, so the heat doesn't tell you when you killed the last one. Ghosts take part in
+    /// merging like live scavs. Overlapping blobs stack into hotter areas. Per-floor visibility follows the map layers.
     ///
     /// Performance: nothing runs while the map is hidden. While it is shown, blobs update every frame (the game already
     /// draws live scav markers on the same canvas, so this is not a meaningful extra cost).
@@ -56,14 +57,28 @@ namespace DynamicMaps.DynamicMarkers
         private class Cluster
         {
             public readonly List<Vector3> Members = new List<Vector3>();
-            public Vector3 Sum;
+            public Vector3 Sum;       // weighted by member weight
+            public float Weight;      // alive scav = 1, ghost = its remaining strength
             public int Level;
             public float Extent;
-            public Vector3 Centroid => Sum / Members.Count;
+            public Vector3 Centroid => Sum / Weight;
+        }
+
+        /// <summary>A scav that died or left range: stays at its last position, full strength for Hold, then falls.</summary>
+        private class Ghost
+        {
+            public string Id;
+            public Vector3 Position;
+            public int Level;
+            public float DeathTime;
+            public float Hold;
         }
 
         private readonly List<ScavHeatCell> _blobs = new List<ScavHeatCell>();
-        private readonly List<(Vector3 position, int level)> _scavs = new List<(Vector3 position, int level)>();
+        private readonly List<(Vector3 position, int level, float weight)> _scavs = new List<(Vector3 position, int level, float weight)>();
+        private readonly Dictionary<string, (Vector3 position, int level)> _known = new Dictionary<string, (Vector3 position, int level)>();
+        private readonly Dictionary<string, (Vector3 position, int level)> _current = new Dictionary<string, (Vector3 position, int level)>();
+        private readonly List<Ghost> _ghosts = new List<Ghost>();
         private readonly List<Cluster> _clusters = new List<Cluster>();
         private readonly List<ScavHeatCell> _tracked = new List<ScavHeatCell>();
         private readonly List<(float distance, int cluster, int blob)> _pairs = new List<(float distance, int cluster, int blob)>();
@@ -99,6 +114,8 @@ namespace DynamicMaps.DynamicMarkers
 
         public void OnMapChanged(MapView map, MapDef mapDef)
         {
+            _known.Clear();
+            _ghosts.Clear();
             ClearBlobs();
             _map = map;
             if (_isShown)
@@ -145,6 +162,7 @@ namespace DynamicMaps.DynamicMarkers
         {
             var fadeOutSeconds = Mathf.Max(1f, Settings.ScavHeatmapFadeSeconds.Value);
             var glide = 1f - Mathf.Exp(-_glideSpeed * deltaTime);
+            var weightSmoothing = 1f - Mathf.Exp(-3f * deltaTime);
 
             // redraw everything when a visual setting changed (opacity, color, overlap count)
             var settingsHash = Settings.ScavHeatmapMaxOpacity.Value
@@ -166,14 +184,21 @@ namespace DynamicMaps.DynamicMarkers
 
                 blob.Heat = heat;  // always keep the real value; only the redraw below is throttled
 
-                // the pack size fades too: a scav dying in a pack lowers the heat gradually instead of popping
+                // the weight already follows the ghosts' hold and fall; this only smooths the steps between samples
                 if (blob.Weight >= blob.DisplayWeight)
                 {
                     blob.DisplayWeight = blob.Weight;
                 }
                 else
                 {
-                    blob.DisplayWeight = Mathf.MoveTowards(blob.DisplayWeight, blob.Weight, deltaTime / fadeOutSeconds);
+                    blob.DisplayWeight = Mathf.Lerp(blob.DisplayWeight, blob.Weight, weightSmoothing);
+                }
+
+                if (!Mathf.Approximately(blob.Radius, blob.TargetRadius))
+                {
+                    blob.SetRadius(Mathf.Abs(blob.Radius - blob.TargetRadius) < 0.1f
+                        ? blob.TargetRadius
+                        : Mathf.Lerp(blob.Radius, blob.TargetRadius, glide));
                 }
 
                 if (blob.Target > 0f && (blob.TargetPosition - blob.Position).sqrMagnitude > _minMove * _minMove)
@@ -208,6 +233,7 @@ namespace DynamicMaps.DynamicMarkers
 
             _scavs.Clear();
             _clusters.Clear();
+            _current.Clear();
 
             var gameWorld = Singleton<GameWorld>.Instance;
             var mainPlayer = GameUtils.GetMainPlayer();
@@ -244,10 +270,17 @@ namespace DynamicMaps.DynamicMarkers
                     var mapPosition = MathUtils.ConvertToMapPosition(player.Position);  // x, y = ground plane, z = height
                     // flat map: one shared "floor" so scavs above and below each other merge and no floor hides the heat
                     var level = _flat ? 0 : _map.GetLevelAt(mapPosition) ?? int.MinValue;
-                    _scavs.Add((mapPosition, level));
+                    _scavs.Add((mapPosition, level, 1f));
+                    _current[player.ProfileId] = (mapPosition, level);
                 }
 
+                UpdateGhosts();
                 BuildClusters();
+            }
+            else
+            {
+                _known.Clear();
+                _ghosts.Clear();
             }
 
             ApplyClusters(mapSettings, intelLevel);
@@ -260,6 +293,58 @@ namespace DynamicMaps.DynamicMarkers
             return locationId != null && Settings.ScavHeatmapMaps.TryGetValue(locationId, out var mapSettings)
                 ? mapSettings
                 : null;
+        }
+
+        /// <summary>
+        /// Scavs seen at the last sample but not now (dead or out of range) become ghosts at their last position.
+        /// Ghosts are added to the scav list with their remaining strength, after the live scavs.
+        /// </summary>
+        private void UpdateGhosts()
+        {
+            var now = Time.unscaledTime;
+            var holdSetting = Mathf.Max(0f, Settings.ScavHeatmapHoldSeconds.Value);
+
+            foreach (var entry in _known)
+            {
+                if (_current.ContainsKey(entry.Key))
+                {
+                    continue;
+                }
+
+                _ghosts.Add(new Ghost
+                {
+                    Id = entry.Key,
+                    Position = entry.Value.position,
+                    Level = entry.Value.level,
+                    DeathTime = now,
+                    // jittered, so the moment the heat starts to fall doesn't give away when the last kill was
+                    Hold = holdSetting * Random.Range(0.8f, 1.2f),
+                });
+            }
+
+            _known.Clear();
+            foreach (var entry in _current)
+            {
+                _known[entry.Key] = entry.Value;
+            }
+
+            var fall = Mathf.Max(1f, Settings.ScavHeatmapFadeSeconds.Value);
+            for (var i = _ghosts.Count - 1; i >= 0; i--)
+            {
+                var ghost = _ghosts[i];
+                var age = now - ghost.DeathTime;
+                if (_current.ContainsKey(ghost.Id) || age >= ghost.Hold + fall)
+                {
+                    _ghosts.RemoveAt(i);  // back among the living, or fully faded
+                    continue;
+                }
+
+                var weight = age <= ghost.Hold ? 1f : 1f - (age - ghost.Hold) / fall;
+                if (weight > 0.01f)
+                {
+                    _scavs.Add((ghost.Position, ghost.Level, weight));
+                }
+            }
         }
 
         /// <summary>Merges scavs on the same floor that are within the merge distance into packs.</summary>
@@ -289,7 +374,8 @@ namespace DynamicMaps.DynamicMarkers
                 }
 
                 target.Members.Add(scav.position);
-                target.Sum += scav.position;
+                target.Sum += scav.position * scav.weight;
+                target.Weight += scav.weight;
             }
 
             foreach (var cluster in _clusters)
@@ -366,11 +452,12 @@ namespace DynamicMaps.DynamicMarkers
                 blob.Offset = CreateStableOffset();
                 blob.Level = cluster.Level;
                 blob.Flat = _flat;
-                blob.Weight = cluster.Members.Count;
+                blob.Weight = cluster.Weight;
                 blob.DisplayWeight = blob.Weight;
                 _blobs.Add(blob);
                 _map.AddLayerBound(blob);  // applies the current floor status immediately
                 ApplyCluster(blob, cluster, radius);
+                blob.SetRadius(blob.TargetRadius);  // new blobs start at their size, existing ones glide
             }
 
             for (var b = 0; b < _tracked.Count; b++)
@@ -386,10 +473,7 @@ namespace DynamicMaps.DynamicMarkers
         {
             var centroid = cluster.Centroid;
             var blobRadius = Mathf.Max(radius, cluster.Extent + _extentPadding);
-            if (!Mathf.Approximately(blob.Radius, blobRadius))
-            {
-                blob.SetRadius(blobRadius);
-            }
+            blob.TargetRadius = blobRadius;  // the blob glides to it (a ghost expiring would otherwise pop the size)
 
             // the fuzz is a constant distance, but never so large that the scavs end up outside their blob
             var offset = blob.Offset * Settings.ScavHeatmapFuzz.Value;
@@ -403,7 +487,7 @@ namespace DynamicMaps.DynamicMarkers
             blob.Centroid = centroid;
             blob.Level = cluster.Level;
             blob.Flat = _flat;
-            blob.Weight = cluster.Members.Count;
+            blob.Weight = cluster.Weight;
             blob.TargetPosition = centroid + new Vector3(offset.x, offset.y, 0f);
             _map.RefreshLayerBound(blob);  // the scavs may have changed floor
         }
@@ -482,6 +566,8 @@ namespace DynamicMaps.DynamicMarkers
         private void Teardown()
         {
             _isShown = false;
+            _known.Clear();
+            _ghosts.Clear();
             ClearBlobs();
 
             if (_ticker != null)

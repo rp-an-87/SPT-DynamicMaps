@@ -156,6 +156,7 @@ namespace DynamicMaps.Config
         public static ConfigEntry<int> ScavHeatmapScavsForFullHeat;
         public static ConfigEntry<float> ScavHeatmapRange;
         public static ConfigEntry<float> ScavHeatmapFadeSeconds;
+        public static ConfigEntry<float> ScavHeatmapHoldSeconds;
         public static ConfigEntry<float> ScavHeatmapUpdateSeconds;
         public static ConfigEntry<float> ScavHeatmapMaxOpacity;
         public static ConfigEntry<Color> ScavHeatmapColor;
@@ -1178,8 +1179,17 @@ namespace DynamicMaps.Config
                 "Fadeout time (s)",
                 30f,
                 new ConfigDescription(
-                    "How long a cell takes to fade from full heat to nothing after the scavs in it die or leave.",
+                    "How long the heat of a dead or departed scav takes to fall from full to nothing, once the fadeout delay is over.",
                     new AcceptableValueRange<float>(2f, 300f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapHoldSeconds = config.Bind(
+                ScavHeatmapTitle,
+                "Fadeout delay (s)",
+                45f,
+                new ConfigDescription(
+                    "After a scav dies or leaves, its heat stays at full strength for about this long (randomly 20% shorter or longer) before it starts to fall. 0 = starts falling immediately.",
+                    new AcceptableValueRange<float>(0f, 300f),
                     new ConfigurationManagerAttributes { })));
 
             ConfigEntries.Add(ScavHeatmapUpdateSeconds = config.Bind(
