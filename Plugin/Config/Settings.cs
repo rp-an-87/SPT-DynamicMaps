@@ -163,6 +163,17 @@ namespace DynamicMaps.Config
 
         private const string CorpseMarkersTitle = "9. Corpse Markers";
         public static ConfigEntry<float> LootedCorpseAlpha;
+        public static ConfigEntry<float> LootedCorpseMinScale;
+        public static ConfigEntry<bool> LootedCorpsesBelow;
+        public static ConfigEntry<float> LootedCorpseDarken;
+        public static ConfigEntry<float> CorpseClusterRadius;
+        public static ConfigEntry<float> PlayerMarkerMinScale;
+        public static ConfigEntry<float> LootedCorpseSaturation;
+        public static ConfigEntry<float> LootedCorpseSizeCurve;
+        public static ConfigEntry<float> PlayerMarkerEaseSpeed;
+        public static ConfigEntry<bool> PlayerMarkerAlwaysOnTop;
+        public static ConfigEntry<float> PlayerMarkerCorpseRadius;
+        public static ConfigEntry<float> PlayerMarkerFullEffectCount;
         public static ConfigEntry<bool> OnlyShowNearbyCorpses;
         public static ConfigEntry<OtherCorpseReveal> OtherCorpsesReveal;
         public static ConfigEntry<bool> RevealKilledCorpsesAfterDelay;
@@ -1214,11 +1225,113 @@ namespace DynamicMaps.Config
             ConfigEntries.Add(LootedCorpseAlpha = config.Bind(
                 CorpseMarkersTitle,
                 "Looted corpse opacity",
-                0.4f,
+                1f,
                 new ConfigDescription(
-                    "Opacity of a corpse marker after you opened that corpse yourself (bots looting don't count). 1 = same as unlooted.",
+                    "Opacity of a corpse marker after you opened that corpse yourself (bots looting don't count). 1 = same as unlooted. " +
+                    "Keep it at 1: translucent markers in a pile add up and look like unlooted ones.",
+                    new AcceptableValueRange<float>(0.1f, 1f),
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
+
+            ConfigEntries.Add(LootedCorpsesBelow = config.Bind(
+                CorpseMarkersTitle,
+                "Draw looted corpses below unlooted",
+                true,
+                new ConfigDescription(
+                    "Looted corpse markers are drawn underneath the unlooted ones, so a pile always shows what is left to loot on top. Off = looted ones are drawn on top.",
+                    null,
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
+
+            ConfigEntries.Add(LootedCorpseMinScale = config.Bind(
+                CorpseMarkersTitle,
+                "Looted corpse minimum size",
+                0.25f,
+                new ConfigDescription(
+                    "A looted corpse marker shrinks the more corpses are within the cluster radius of it (size = 1 / sqrt(count)). This is the smallest it gets. " +
+                    "1 = looted markers never shrink.",
                     new AcceptableValueRange<float>(0.1f, 1f),
                     new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(LootedCorpseDarken = config.Bind(
+                CorpseMarkersTitle,
+                "Looted corpse darkening",
+                0.55f,
+                new ConfigDescription(
+                    "Brightness of a looted corpse marker compared to its normal color (same hue, a bit less saturated). 1 = same color as unlooted.",
+                    new AcceptableValueRange<float>(0.1f, 1f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(LootedCorpseSaturation = config.Bind(
+                CorpseMarkersTitle,
+                "Looted corpse saturation",
+                0.85f,
+                new ConfigDescription(
+                    "Color saturation of a looted corpse marker compared to its normal color. 1 = same saturation, lower = greyer.",
+                    new AcceptableValueRange<float>(0f, 1f),
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
+
+            ConfigEntries.Add(LootedCorpseSizeCurve = config.Bind(
+                CorpseMarkersTitle,
+                "Looted corpse size curve",
+                0.5f,
+                new ConfigDescription(
+                    "How fast a looted marker shrinks with the size of its pile: size = pile size ^ -curve, never below the minimum size. " +
+                    "0 = never shrinks, 0.5 = square root (default), 1 = size 1/n (shrinks fast).",
+                    new AcceptableValueRange<float>(0f, 2f),
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
+
+            ConfigEntries.Add(PlayerMarkerEaseSpeed = config.Bind(
+                CorpseMarkersTitle,
+                "Player marker easing speed",
+                8f,
+                new ConfigDescription(
+                    "How fast your arrow follows its target size, per second. Low = slow and smooth (about 3 / speed seconds to settle), high = snappy.",
+                    new AcceptableValueRange<float>(0.5f, 40f),
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
+
+            ConfigEntries.Add(PlayerMarkerAlwaysOnTop = config.Bind(
+                CorpseMarkersTitle,
+                "Player marker always on top",
+                true,
+                new ConfigDescription(
+                    "Draw your own arrow above all other markers (checked every half second).",
+                    null,
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
+
+            ConfigEntries.Add(PlayerMarkerMinScale = config.Bind(
+                CorpseMarkersTitle,
+                "Player marker minimum size near corpses",
+                0.5f,
+                new ConfigDescription(
+                    "Your own arrow is always drawn on top. Near corpses it shrinks smoothly, linearly with how many corpses are around you, down to this size. 1 = never shrinks.",
+                    new AcceptableValueRange<float>(0.1f, 1f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(PlayerMarkerCorpseRadius = config.Bind(
+                CorpseMarkersTitle,
+                "Player marker corpse radius (m)",
+                6f,
+                new ConfigDescription(
+                    "Corpses within this distance of you count towards shrinking your arrow. A corpse counts fully at your position and less and less towards this distance.",
+                    new AcceptableValueRange<float>(0.5f, 30f),
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
+
+            ConfigEntries.Add(PlayerMarkerFullEffectCount = config.Bind(
+                CorpseMarkersTitle,
+                "Player marker full effect at corpses",
+                5f,
+                new ConfigDescription(
+                    "The weighted number of corpses around you at which your arrow reaches its minimum size. Fewer corpses give a proportionally smaller effect.",
+                    new AcceptableValueRange<float>(1f, 50f),
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
+
+            ConfigEntries.Add(CorpseClusterRadius = config.Bind(
+                CorpseMarkersTitle,
+                "Corpse cluster radius (m)",
+                3f,
+                new ConfigDescription(
+                    "Corpses linked by gaps of at most this distance form one pile (chained, so a long line of close corpses is one pile). A looted marker shrinks with the size of its pile.",
+                    new AcceptableValueRange<float>(0.5f, 20f),
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
 
             ConfigEntries.Add(OnlyShowNearbyCorpses = config.Bind(
                 CorpseMarkersTitle,
@@ -1246,7 +1359,7 @@ namespace DynamicMaps.Config
                 new ConfigDescription(
                     "Meters added to the instant reveal radius for each level of your Perception skill.",
                     new AcceptableValueRange<float>(0f, 2f),
-                    new ConfigurationManagerAttributes { })));
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
 
             ConfigEntries.Add(CorpseRevealRadiusEliteBonus = config.Bind(
                 CorpseMarkersTitle,
@@ -1255,7 +1368,7 @@ namespace DynamicMaps.Config
                 new ConfigDescription(
                     "Extra meters of instant reveal radius once your Perception skill is elite (above level 50).",
                     new AcceptableValueRange<float>(0f, 50f),
-                    new ConfigurationManagerAttributes { })));
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
 
             ConfigEntries.Add(RevealKilledCorpsesAfterDelay = config.Bind(
                 CorpseMarkersTitle,
@@ -1274,7 +1387,7 @@ namespace DynamicMaps.Config
                 new ConfigDescription(
                     "Seconds after death until a corpse killed by you or your group gets its marker, when the delay is on. Not changed by Perception or intel level.",
                     new AcceptableValueRange<float>(0f, 600f),
-                    new ConfigurationManagerAttributes { })));
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
 
             ConfigEntries.Add(OtherCorpsesReveal = config.Bind(
                 CorpseMarkersTitle,
@@ -1302,7 +1415,7 @@ namespace DynamicMaps.Config
                 new ConfigDescription(
                     "The other corpses radius once your Perception skill is elite (above level 50). Never smaller than the normal radius.",
                     new AcceptableValueRange<float>(0f, 25f),
-                    new ConfigurationManagerAttributes { })));
+                    new ConfigurationManagerAttributes { IsAdvanced = true })));
 
             ConfigEntries.Add(ShowHeliCrashMarker = config.Bind(
                 ExternModSupport,

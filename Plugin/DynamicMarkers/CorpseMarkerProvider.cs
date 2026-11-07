@@ -114,7 +114,12 @@ namespace DynamicMaps.DynamicMarkers
         private const float _checkIntervalSeconds = 0.5f;
 
         private MapView _lastMapView;
+        /// <summary>The provider of the running raid, so the player marker can ask how crowded its surroundings are.</summary>
+        internal static CorpseMarkerProvider Current { get; private set; }
+
         private Dictionary<Player, MapMarker> _corpseMarkers = [];
+        private readonly Dictionary<Player, Color> _baseColors = [];
+        private readonly Dictionary<Player, Vector3> _worldPositions = [];
         private CorpseRevealTicker _ticker;
         private float _nextCheckTime;
 
@@ -123,8 +128,88 @@ namespace DynamicMaps.DynamicMarkers
         private readonly HashSet<Player> _pendingOthers = [];  // other corpses waiting for the close-up reveal
         private readonly HashSet<Player> _revealed = [];
 
+        /// <summary>
+        /// How many corpses with a marker are around a world position, each weighted linearly by closeness
+        /// (1 at the position, 0 at the radius), so the value changes smoothly while moving.
+        /// </summary>
+        internal float WeightedCorpseCountNear(Vector3 position, float radius)
+        {
+            if (radius <= 0f)
+            {
+                return 0f;
+            }
+
+            var weight = 0f;
+            foreach (var pair in _worldPositions)
+            {
+                if (_corpseMarkers.ContainsKey(pair.Key))
+                {
+                    weight += Mathf.Max(0f, 1f - Vector3.Distance(position, pair.Value) / radius);
+                }
+            }
+
+            return weight;
+        }
+
+        // size of the chained pile each corpse belongs to: corpses linked by gaps of at most `link` metres
+        private Dictionary<Player, int> ComputePileSizes(float link)
+        {
+            var players = new List<Player>();
+            foreach (var player in _corpseMarkers.Keys)
+            {
+                if (_worldPositions.ContainsKey(player))
+                {
+                    players.Add(player);
+                }
+            }
+
+            var parent = new int[players.Count];
+            for (var i = 0; i < parent.Length; i++)
+            {
+                parent[i] = i;
+            }
+
+            int Find(int i)
+            {
+                while (parent[i] != i)
+                {
+                    parent[i] = parent[parent[i]];
+                    i = parent[i];
+                }
+
+                return i;
+            }
+
+            for (var i = 0; i < players.Count; i++)
+            {
+                for (var j = i + 1; j < players.Count; j++)
+                {
+                    if (Vector3.Distance(_worldPositions[players[i]], _worldPositions[players[j]]) <= link)
+                    {
+                        parent[Find(i)] = Find(j);
+                    }
+                }
+            }
+
+            var rootCounts = new Dictionary<int, int>();
+            for (var i = 0; i < players.Count; i++)
+            {
+                var root = Find(i);
+                rootCounts[root] = rootCounts.TryGetValue(root, out var c) ? c + 1 : 1;
+            }
+
+            var sizes = new Dictionary<Player, int>();
+            for (var i = 0; i < players.Count; i++)
+            {
+                sizes[players[i]] = rootCounts[Find(i)];
+            }
+
+            return sizes;
+        }
+
         public void OnShowInRaid(MapView map)
         {
+            Current = this;
             _lastMapView = map;
             EnsureTicker();
 
@@ -171,6 +256,11 @@ namespace DynamicMaps.DynamicMarkers
 
         public void OnDisable(MapView map)
         {
+            if (Current == this)
+            {
+                Current = null;
+            }
+
             GameWorldUnregisterPlayerPatch.OnUnregisterPlayer -= OnUnregisterPlayer;
             PlayerInteractCorpsePatch.OnCorpseOpened -= OnCorpseOpened;
             TryRemoveMarkers();
@@ -206,9 +296,9 @@ namespace DynamicMaps.DynamicMarkers
                 // opening a corpse reveals it, whatever the near/looted rules say
                 _pending.Remove(player);
                 _pendingOthers.Remove(player);
-                if (_corpseMarkers.TryGetValue(player, out var marker))
+                if (_corpseMarkers.ContainsKey(player))
                 {
-                    ApplyLootedState(player, marker);
+                    RefreshLootedVisuals();
                 }
                 else
                 {
@@ -217,9 +307,63 @@ namespace DynamicMaps.DynamicMarkers
             }
         }
 
-        private void ApplyLootedState(Player player, MapMarker marker)
+        // Looted corpses get a darker shade of their color and shrink with the size of their pile (chained corpses)
+        // (n^-curve, down to a minimum), and are drawn below the unlooted ones (or above, see the setting). So in a pile the big, bright
+        // skulls are the ones still to loot.
+        private void RefreshLootedVisuals()
         {
-            marker.AlphaScale = PlayerInteractCorpsePatch.LootedProfileIds.Contains(player.ProfileId) ? Settings.LootedCorpseAlpha.Value : 1f;
+            var pileSizes = ComputePileSizes(Settings.CorpseClusterRadius.Value);
+            var minScale = Settings.LootedCorpseMinScale.Value;
+            var darken = Settings.LootedCorpseDarken.Value;
+            var alpha = Settings.LootedCorpseAlpha.Value;
+
+            var looted = new List<MapMarker>();
+            var minIndex = int.MaxValue;
+            var maxIndex = -1;
+
+            foreach (var pair in _corpseMarkers)
+            {
+                var player = pair.Key;
+                var marker = pair.Value;
+                if (marker == null || !_baseColors.TryGetValue(player, out var baseColor))
+                {
+                    continue;
+                }
+
+                var siblingIndex = marker.transform.GetSiblingIndex();
+                minIndex = Mathf.Min(minIndex, siblingIndex);
+                maxIndex = Mathf.Max(maxIndex, siblingIndex);
+
+                if (!PlayerInteractCorpsePatch.LootedProfileIds.Contains(player.ProfileId))
+                {
+                    marker.Color = baseColor;
+                    marker.AlphaScale = 1f;
+                    marker.RefreshAlpha();
+                    marker.Image.rectTransform.localScale = Vector3.one;
+                    continue;
+                }
+
+                var count = pileSizes.TryGetValue(player, out var pileSize) ? pileSize : 1;
+
+                Color.RGBToHSV(baseColor, out var h, out var s, out var v);
+                var dark = Color.HSVToRGB(h, s * Settings.LootedCorpseSaturation.Value, v * darken);
+                dark.a = baseColor.a;
+
+                marker.Color = dark;
+                marker.AlphaScale = alpha;
+                marker.RefreshAlpha();
+                // the child image, not the marker: the map zoom resets the marker's own scale
+                marker.Image.rectTransform.localScale = Vector3.one * Mathf.Max(minScale, Mathf.Pow(Mathf.Max(1, count), -Settings.LootedCorpseSizeCurve.Value));
+                looted.Add(marker);
+            }
+
+            // looted ones go to the bottom (or top) slot of the corpse markers, so they sit below (or above)
+            // the unlooted ones without moving past other kinds of markers
+            var targetIndex = Settings.LootedCorpsesBelow.Value ? minIndex : maxIndex;
+            foreach (var marker in looted)
+            {
+                marker.transform.SetSiblingIndex(targetIndex);
+            }
         }
 
         // distance within which a corpse killed by the main player's group gets its marker
@@ -372,6 +516,8 @@ namespace DynamicMaps.DynamicMarkers
             }
 
             _corpseMarkers.Clear();
+            _baseColors.Clear();
+            _worldPositions.Clear();
         }
 
         private void TryAddMarkers()
@@ -523,7 +669,9 @@ namespace DynamicMaps.DynamicMarkers
             // try adding marker
             var marker = _lastMapView.AddMapMarker(markerDef);
             _corpseMarkers[player] = marker;
-            ApplyLootedState(player, marker);
+            _baseColors[player] = color;
+            _worldPositions[player] = ((IPlayer)player).Position;
+            RefreshLootedVisuals();
         }
 
         private void RemoveDisabledMarkers()
@@ -547,6 +695,9 @@ namespace DynamicMaps.DynamicMarkers
 
             _corpseMarkers[player].ContainingMapView.RemoveMapMarker(_corpseMarkers[player]);
             _corpseMarkers.Remove(player);
+            _baseColors.Remove(player);
+            _worldPositions.Remove(player);
+            RefreshLootedVisuals();
         }
 
         private bool ShouldShowCategory(string category)

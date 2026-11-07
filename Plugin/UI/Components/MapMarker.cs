@@ -192,6 +192,12 @@ namespace DynamicMaps.UI.Components
             }
         }
 
+        /// <summary>Re-applies the layer-status alpha, e.g. after the color was set (which resets the alpha).</summary>
+        public void RefreshAlpha()
+        {
+            HandleNewLayerStatus(_lastLayerStatus);
+        }
+
         private float _initialRotation;
         private bool _hasSetOutline = false;
         private bool _isInFullReveal = false;
