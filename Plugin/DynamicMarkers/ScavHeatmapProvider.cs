@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Comfort.Common;
 using DynamicMaps.Config;
 using DynamicMaps.Data;
+using DynamicMaps.Patches;
 using DynamicMaps.UI.Components;
 using DynamicMaps.Utils;
 using EFT;
@@ -72,12 +73,14 @@ namespace DynamicMaps.DynamicMarkers
             public int Level;
             public float DeathTime;
             public float Hold;
+            public float Start;  // strength at death (a scav still fading in leaves a weaker ghost)
         }
 
         private readonly List<ScavHeatCell> _blobs = new List<ScavHeatCell>();
         private readonly List<(Vector3 position, int level, float weight)> _scavs = new List<(Vector3 position, int level, float weight)>();
-        private readonly Dictionary<string, (Vector3 position, int level)> _known = new Dictionary<string, (Vector3 position, int level)>();
-        private readonly Dictionary<string, (Vector3 position, int level)> _current = new Dictionary<string, (Vector3 position, int level)>();
+        private readonly Dictionary<string, (Vector3 position, int level, float weight)> _known = new Dictionary<string, (Vector3 position, int level, float weight)>();
+        private readonly Dictionary<string, (Vector3 position, int level, float weight)> _current = new Dictionary<string, (Vector3 position, int level, float weight)>();
+        private readonly Dictionary<string, float> _fadeInDelays = new Dictionary<string, float>();  // jittered fade-in delay per scav
         private readonly List<Ghost> _ghosts = new List<Ghost>();
         private readonly List<Cluster> _clusters = new List<Cluster>();
         private readonly List<ScavHeatCell> _tracked = new List<ScavHeatCell>();
@@ -161,6 +164,7 @@ namespace DynamicMaps.DynamicMarkers
         private void UpdateBlobs(float deltaTime)
         {
             var fadeOutSeconds = Mathf.Max(1f, Settings.ScavHeatmapFadeSeconds.Value);
+            var fadeInSeconds = Mathf.Max(0f, Settings.ScavHeatmapFadeInSeconds.Value);
             var glide = 1f - Mathf.Exp(-_glideSpeed * deltaTime);
             var weightSmoothing = 1f - Mathf.Exp(-3f * deltaTime);
 
@@ -187,7 +191,10 @@ namespace DynamicMaps.DynamicMarkers
                 // the weight already follows the ghosts' hold and fall; this only smooths the steps between samples
                 if (blob.Weight >= blob.DisplayWeight)
                 {
-                    blob.DisplayWeight = blob.Weight;
+                    // fade-in: the weight only changes once per sample, so rise at the fade-in speed instead of in steps
+                    blob.DisplayWeight = fadeInSeconds > 0f
+                        ? Mathf.Min(blob.Weight, blob.DisplayWeight + deltaTime * Mathf.Max(1f, blob.Weight) / fadeInSeconds)
+                        : blob.Weight;
                 }
                 else
                 {
@@ -267,11 +274,18 @@ namespace DynamicMaps.DynamicMarkers
                         continue;
                     }
 
+                    // fade-in: counted from the spawn, so it runs on while the map is closed
+                    var fadeInWeight = GetFadeInWeight(player.ProfileId, Time.unscaledTime);
+                    if (fadeInWeight <= 0.01f)
+                    {
+                        continue;  // not counted yet: no bubble, no ghost if it dies now
+                    }
+
                     var mapPosition = MathUtils.ConvertToMapPosition(player.Position);  // x, y = ground plane, z = height
                     // flat map: one shared "floor" so scavs above and below each other merge and no floor hides the heat
                     var level = _flat ? 0 : _map.GetLevelAt(mapPosition) ?? int.MinValue;
-                    _scavs.Add((mapPosition, level, 1f));
-                    _current[player.ProfileId] = (mapPosition, level);
+                    _scavs.Add((mapPosition, level, fadeInWeight));
+                    _current[player.ProfileId] = (mapPosition, level, fadeInWeight);
                 }
 
                 UpdateGhosts();
@@ -311,12 +325,26 @@ namespace DynamicMaps.DynamicMarkers
                     continue;
                 }
 
+                var position = entry.Value.position;
+                var level = entry.Value.level;
+                var deathTime = now;
+                var start = entry.Value.weight;
+                if (PlayerOnDeadPatch.HeatmapDeaths.TryGetValue(entry.Key, out var death))
+                {
+                    // it died, maybe while the map was closed: count from the real death
+                    deathTime = death.time;
+                    position = MathUtils.ConvertToMapPosition(death.position);
+                    level = _flat ? 0 : _map.GetLevelAt(position) ?? int.MinValue;
+                    start = GetFadeInWeight(entry.Key, death.time);
+                }
+
                 _ghosts.Add(new Ghost
                 {
                     Id = entry.Key,
-                    Position = entry.Value.position,
-                    Level = entry.Value.level,
-                    DeathTime = now,
+                    Position = position,
+                    Level = level,
+                    DeathTime = deathTime,
+                    Start = start,
                     // jittered, so the moment the heat starts to fall doesn't give away when the last kill was
                     Hold = holdSetting * Random.Range(0.8f, 1.2f),
                 });
@@ -339,12 +367,54 @@ namespace DynamicMaps.DynamicMarkers
                     continue;
                 }
 
-                var weight = age <= ghost.Hold ? 1f : 1f - (age - ghost.Hold) / fall;
+                var weight = ghost.Start * (age <= ghost.Hold ? 1f : 1f - (age - ghost.Hold) / fall);
                 if (weight > 0.01f)
                 {
                     _scavs.Add((ghost.Position, ghost.Level, weight));
                 }
             }
+        }
+
+        /// <summary>
+        /// How much a scav counts at the given time: 0 until the fade-in delay after its spawn is over, then rising to 1 over
+        /// the fade-in time. Works from the spawn time, so it doesn't depend on the map being open.
+        /// </summary>
+        private float GetFadeInWeight(string id, float at)
+        {
+            var delaySetting = Mathf.Max(0f, Settings.ScavHeatmapFadeInDelaySeconds.Value);
+            var fadeIn = Mathf.Max(0f, Settings.ScavHeatmapFadeInSeconds.Value);
+            if (delaySetting <= 0f && fadeIn <= 0f)
+            {
+                return 1f;
+            }
+
+            if (!GameWorldRegisterPlayerPatch.SpawnTimes.TryGetValue(id, out var spawn))
+            {
+                spawn = Time.unscaledTime;  // not seen being registered: counts from now
+                GameWorldRegisterPlayerPatch.SpawnTimes[id] = spawn;
+            }
+
+            if (!_fadeInDelays.TryGetValue(id, out var delay))
+            {
+                // jittered, so the moment a scav appears doesn't give away exactly when it spawned
+                delay = delaySetting * Random.Range(0.8f, 1.2f);
+                _fadeInDelays[id] = delay;
+            }
+
+            // scavs registered while the raid was loading count from the moment you got control
+            var raidStart = GameStartedPatch.StartTime;
+            if (raidStart < 0f)
+            {
+                return 0f;  // raid not started yet: nothing counts
+            }
+
+            var age = at - Mathf.Max(spawn, raidStart) - delay;
+            if (fadeIn <= 0f)
+            {
+                return age >= 0f ? 1f : 0f;
+            }
+
+            return Mathf.Clamp01(age / fadeIn);
         }
 
         /// <summary>Merges scavs on the same floor that are within the merge distance into packs.</summary>
@@ -567,6 +637,7 @@ namespace DynamicMaps.DynamicMarkers
         {
             _isShown = false;
             _known.Clear();
+            _fadeInDelays.Clear();
             _ghosts.Clear();
             ClearBlobs();
 

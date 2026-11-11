@@ -13,6 +13,9 @@ namespace DynamicMaps.Patches
     internal class GameStartedPatch : ModulePatch
     {
         public static List<LootableContainer> HiddenStashes { get; } = [];
+
+        /// <summary>When the raid started (Time.unscaledTime, you got control), or -1 before. Scavs that spawned while loading count from here.</summary>
+        public static float StartTime { get; set; } = -1f;
         
         protected override MethodBase GetTargetMethod()
         {
@@ -22,6 +25,8 @@ namespace DynamicMaps.Patches
         [PatchPostfix]
         public static void PatchPostfix(GameWorld __instance)
         {
+            StartTime = UnityEngine.Time.unscaledTime;
+
             // Credit to RaiRai for finding the hidden stash names
             var caches = LocationScene.GetAllObjects<LootableContainer>()
                 .Where( x => 
@@ -53,7 +58,10 @@ namespace DynamicMaps.Patches
             {
                 OnRaidEnd?.Invoke();
                 GameStartedPatch.HiddenStashes.Clear();
+                GameStartedPatch.StartTime = -1f;
                 PlayerOnDeadPatch.DeathTimes.Clear();
+                PlayerOnDeadPatch.HeatmapDeaths.Clear();
+                GameWorldRegisterPlayerPatch.SpawnTimes.Clear();
                 PlayerInteractCorpsePatch.LootedProfileIds.Clear();
             }
             catch(Exception e)
@@ -61,6 +69,26 @@ namespace DynamicMaps.Patches
                 Plugin.Log.LogError($"Caught error while doing end of raid calculations");
                 Plugin.Log.LogError($"{e.Message}");
                 Plugin.Log.LogError($"{e.StackTrace}");
+            }
+        }
+    }
+
+    internal class GameWorldRegisterPlayerPatch : ModulePatch
+    {
+        /// <summary>When each player was registered in the raid (Time.unscaledTime), by profile id. For the scav heatmap fade-in, filled while the map is closed.</summary>
+        internal static Dictionary<string, float> SpawnTimes { get; } = [];
+
+        protected override MethodBase GetTargetMethod()
+        {
+            return AccessTools.Method(typeof(GameWorld), nameof(GameWorld.RegisterPlayer));
+        }
+
+        [PatchPostfix]
+        public static void PatchPostfix(IPlayer iPlayer)
+        {
+            if (iPlayer != null && !SpawnTimes.ContainsKey(iPlayer.ProfileId))
+            {
+                SpawnTimes[iPlayer.ProfileId] = UnityEngine.Time.unscaledTime;
             }
         }
     }

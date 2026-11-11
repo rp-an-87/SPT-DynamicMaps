@@ -55,6 +55,7 @@ namespace DynamicMaps
             new GameStartedPatch().Enable();
             new GameWorldOnDestroyPatch().Enable();
             new GameWorldUnregisterPlayerPatch().Enable();
+            new GameWorldRegisterPlayerPatch().Enable();
             new LootItemInitPatch().Enable();
             new GameWorldDestroyLootPatch().Enable();
             new AirdropBoxOnBoxLandPatch().Enable();

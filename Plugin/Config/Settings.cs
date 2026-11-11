@@ -157,6 +157,8 @@ namespace DynamicMaps.Config
         public static ConfigEntry<float> ScavHeatmapRange;
         public static ConfigEntry<float> ScavHeatmapFadeSeconds;
         public static ConfigEntry<float> ScavHeatmapHoldSeconds;
+        public static ConfigEntry<float> ScavHeatmapFadeInDelaySeconds;
+        public static ConfigEntry<float> ScavHeatmapFadeInSeconds;
         public static ConfigEntry<float> ScavHeatmapUpdateSeconds;
         public static ConfigEntry<float> ScavHeatmapMaxOpacity;
         public static ConfigEntry<Color> ScavHeatmapColor;
@@ -1189,6 +1191,24 @@ namespace DynamicMaps.Config
                 45f,
                 new ConfigDescription(
                     "After a scav dies or leaves, its heat stays at full strength for about this long (randomly 20% shorter or longer) before it starts to fall. 0 = starts falling immediately.",
+                    new AcceptableValueRange<float>(0f, 300f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapFadeInDelaySeconds = config.Bind(
+                ScavHeatmapTitle,
+                "Fade-in delay (s)",
+                0f,
+                new ConfigDescription(
+                    "A scav doesn't count on the heatmap until this long after it spawned (randomly 20% shorter or longer). 0 = counts immediately.",
+                    new AcceptableValueRange<float>(0f, 300f),
+                    new ConfigurationManagerAttributes { })));
+
+            ConfigEntries.Add(ScavHeatmapFadeInSeconds = config.Bind(
+                ScavHeatmapTitle,
+                "Fade-in time (s)",
+                0f,
+                new ConfigDescription(
+                    "Once the fade-in delay is over, how long a scav's heat takes to rise from nothing to full strength. It can join a bubble at partial strength. 0 = full strength at once.",
                     new AcceptableValueRange<float>(0f, 300f),
                     new ConfigurationManagerAttributes { })));
 

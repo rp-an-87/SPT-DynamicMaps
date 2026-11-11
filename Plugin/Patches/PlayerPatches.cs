@@ -19,6 +19,9 @@ namespace DynamicMaps.Patches
         /// <summary>When each dead player died (Time.unscaledTime), by profile id. Filled even while the map has never been shown.</summary>
         internal static Dictionary<string, float> DeathTimes { get; } = [];
 
+        /// <summary>When and where every player died (Time.unscaledTime, world position), by profile id. For the scav heatmap ghosts, filled while the map is closed.</summary>
+        internal static Dictionary<string, (float time, Vector3 position)> HeatmapDeaths { get; } = [];
+
         protected override MethodBase GetTargetMethod()
         {
             return AccessTools.Method(typeof(Player), nameof(Player.OnDead));
@@ -27,6 +30,8 @@ namespace DynamicMaps.Patches
         [PatchPostfix]
         public static void PatchPostfix(Player __instance)
         {
+            HeatmapDeaths[__instance.ProfileId] = (Time.unscaledTime, __instance.Position);
+
             // only needed by the reveal delay, which is off by default
             if (Settings.RevealKilledCorpsesAfterDelay.Value)
             {
